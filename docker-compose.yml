@@ -1,0 +1,10 @@
+services:
+  opencep-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - OPENCEP_VERSION=${OPENCEP_VERSION:-2.0.1}
+    ports:
+      - "8080:80"
+    restart: always
