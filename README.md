@@ -129,6 +129,26 @@ Acessa diretamente a base de dados local sem fallback.
 curl http://localhost:8080/v1/01001000.json
 ```
 
+### Health Check
+
+**Endpoint**: `/health`
+
+Verifica se o serviço está funcionando.
+
+```bash
+curl http://localhost:8080/health
+```
+
+**Resposta**:
+
+```json
+{
+  "status": "ok",
+  "service": "opencep-api",
+  "timestamp": "2025-10-16T10:30:45-03:00"
+}
+```
+
 ## 🏗️ Arquitetura
 
 ```
@@ -254,7 +274,7 @@ Este projeto é fornecido "como está", sem garantias. Use por sua conta e risco
 - [ ] Suporte a HTTPS
 - [ ] Métricas e monitoramento
 - [ ] Cache de respostas do ViaCEP
-- [ ] Health check endpoint
+- [x] Health check endpoint
 
 ## 📞 Contato
 

@@ -1,5 +1,6 @@
 services:
   opencep-api:
+    image: ghcr.io/ricardoapaes/opencep:latest
     build:
       context: .
       dockerfile: Dockerfile
