@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenCEP API - Consulta de CEP</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px 30px;
+            text-align: center;
+        }
+        
+        header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        header p {
+            font-size: 1.1em;
+            opacity: 0.95;
+        }
+        
+        .content {
+            padding: 40px 30px;
+        }
+        
+        h2 {
+            color: #667eea;
+            margin: 30px 0 20px 0;
+            font-size: 1.8em;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 10px;
+        }
+        
+        h2:first-child {
+            margin-top: 0;
+        }
+        
+        .endpoint {
+            background: #f8f9fa;
+            border-left: 4px solid #667eea;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        
+        .endpoint h3 {
+            color: #764ba2;
+            margin-bottom: 10px;
+            font-size: 1.3em;
+        }
+        
+        .endpoint-url {
+            background: #2d3748;
+            color: #68d391;
+            padding: 12px 15px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            margin: 10px 0;
+            overflow-x: auto;
+            font-size: 0.95em;
+        }
+        
+        .method {
+            display: inline-block;
+            background: #48bb78;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 0.85em;
+            margin-right: 10px;
+        }
+        
+        .description {
+            margin: 15px 0;
+            color: #555;
+        }
+        
+        .example {
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 15px 0;
+        }
+        
+        .example h4 {
+            color: #667eea;
+            margin-bottom: 10px;
+            font-size: 1em;
+        }
+        
+        .code {
+            background: #2d3748;
+            color: #68d391;
+            padding: 12px 15px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            margin: 8px 0;
+            overflow-x: auto;
+            font-size: 0.9em;
+        }
+        
+        .response {
+            background: #2d3748;
+            color: #a0aec0;
+            padding: 15px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            margin: 10px 0;
+            overflow-x: auto;
+            font-size: 0.85em;
+            white-space: pre;
+        }
+        
+        .info-box {
+            background: #e6fffa;
+            border-left: 4px solid #38b2ac;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        
+        .info-box strong {
+            color: #234e52;
+        }
+        
+        .warning-box {
+            background: #fffaf0;
+            border-left: 4px solid #ed8936;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        
+        footer {
+            background: #2d3748;
+            color: #a0aec0;
+            text-align: center;
+            padding: 20px;
+            font-size: 0.9em;
+        }
+        
+        footer a {
+            color: #68d391;
+            text-decoration: none;
+        }
+        
+        footer a:hover {
+            text-decoration: underline;
+        }
+        
+        .params {
+            margin: 15px 0;
+        }
+        
+        .params dt {
+            font-weight: bold;
+            color: #667eea;
+            margin-top: 10px;
+        }
+        
+        .params dd {
+            margin-left: 20px;
+            color: #555;
+        }
+        
+        @media (max-width: 768px) {
+            header h1 {
+                font-size: 2em;
+            }
+            
+            .content {
+                padding: 30px 20px;
+            }
+            
+            .endpoint-url, .code, .response {
+                font-size: 0.8em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔍 OpenCEP API</h1>
+            <p>API de consulta de CEP 100% compatível com ViaCEP</p>
+            <p>Cache local + fallback automático</p>
+        </header>
+        
+        <div class="content">
+            <div class="info-box">
+                <strong>ℹ️ Sobre:</strong> Esta API usa uma arquitetura de duas camadas: consulta local em arquivos JSON estáticos para CEPs conhecidos, com fallback automático para a API do ViaCEP quando necessário.
+            </div>
+            
+            <h2>📋 Endpoints Disponíveis</h2>
+            
+            <div class="endpoint">
+                <h3>1. Consulta por CEP</h3>
+                <span class="method">GET</span>
+                <div class="endpoint-url">/ws/{cep}/{formato}/</div>
+                
+                <div class="description">
+                    Consulta informações de um CEP específico. Tenta primeiro o cache local, depois faz fallback para ViaCEP.
+                </div>
+                
+                <dl class="params">
+                    <dt>{cep}</dt>
+                    <dd>CEP com 8 dígitos (sem hífen). Exemplo: 01001000</dd>
+                    
+                    <dt>{formato}</dt>
+                    <dd>Formato da resposta: <code>json</code> ou <code>xml</code></dd>
+                </dl>
+                
+                <div class="example">
+                    <h4>Exemplo de requisição:</h4>
+                    <div class="code">curl http://localhost:8080/ws/01001000/json/</div>
+                    
+                    <h4>Resposta (JSON):</h4>
+                    <div class="response">{
+  "cep": "01001-000",
+  "logradouro": "Praça da Sé",
+  "complemento": "lado ímpar",
+  "bairro": "Sé",
+  "localidade": "São Paulo",
+  "uf": "SP",
+  "ibge": "3550308",
+  "gia": "1004",
+  "ddd": "11",
+  "siafi": "7107"
+}</div>
+                </div>
+            </div>
+            
+            <div class="endpoint">
+                <h3>2. Pesquisa por Endereço</h3>
+                <span class="method">GET</span>
+                <div class="endpoint-url">/ws/{UF}/{Cidade}/{Logradouro}/{formato}/</div>
+                
+                <div class="description">
+                    Busca CEPs por endereço (mínimo 3 caracteres no logradouro). Sempre usa proxy para ViaCEP.
+                </div>
+                
+                <dl class="params">
+                    <dt>{UF}</dt>
+                    <dd>Sigla do estado (2 letras maiúsculas). Exemplo: RS, SP, RJ</dd>
+                    
+                    <dt>{Cidade}</dt>
+                    <dd>Nome da cidade (pode conter espaços). Exemplo: Porto Alegre</dd>
+                    
+                    <dt>{Logradouro}</dt>
+                    <dd>Nome da rua/avenida (mínimo 3 caracteres). Exemplo: Domingos</dd>
+                    
+                    <dt>{formato}</dt>
+                    <dd>Formato da resposta: <code>json</code> ou <code>xml</code></dd>
+                </dl>
+                
+                <div class="example">
+                    <h4>Exemplo de requisição:</h4>
+                    <div class="code">curl http://localhost:8080/ws/RS/Porto%20Alegre/Domingos/json/</div>
+                    
+                    <h4>Resposta (JSON) - Array de resultados:</h4>
+                    <div class="response">[
+  {
+    "cep": "90035-030",
+    "logradouro": "Rua Domingos Rubbo",
+    "complemento": "",
+    "bairro": "Centro Histórico",
+    "localidade": "Porto Alegre",
+    "uf": "RS",
+    "ibge": "4314902",
+    "gia": "",
+    "ddd": "51",
+    "siafi": "8801"
+  },
+  ...
+]</div>
+                </div>
+            </div>
+            
+            <div class="endpoint">
+                <h3>3. Acesso Direto ao Cache Local</h3>
+                <span class="method">GET</span>
+                <div class="endpoint-url">/v1/{cep}.json</div>
+                
+                <div class="description">
+                    Acessa diretamente o arquivo JSON local sem fallback. Retorna 404 se o CEP não estiver no cache.
+                </div>
+                
+                <div class="example">
+                    <h4>Exemplo de requisição:</h4>
+                    <div class="code">curl http://localhost:8080/v1/01001000.json</div>
+                </div>
+            </div>
+            
+            <div class="endpoint">
+                <h3>4. Health Check</h3>
+                <span class="method">GET</span>
+                <div class="endpoint-url">/health</div>
+                
+                <div class="description">
+                    Verifica o status do serviço (não depende de APIs externas).
+                </div>
+                
+                <div class="example">
+                    <h4>Exemplo de requisição:</h4>
+                    <div class="code">curl http://localhost:8080/health</div>
+                    
+                    <h4>Resposta:</h4>
+                    <div class="response">{
+  "status": "ok",
+  "service": "opencep-api",
+  "timestamp": "2025-10-17T14:30:00+00:00"
+}</div>
+                </div>
+            </div>
+            
+            <h2>⚡ Arquitetura</h2>
+            
+            <div class="info-box">
+                <strong>Cache Local:</strong> A API mantém um banco de dados local com milhões de CEPs brasileiros em arquivos JSON estáticos, garantindo respostas ultrarrápidas sem dependência de serviços externos.
+            </div>
+            
+            <div class="info-box">
+                <strong>Fallback Inteligente:</strong> Se um CEP não for encontrado no cache local (CEPs novos ou atualizados), a API automaticamente consulta o ViaCEP e retorna o resultado, mantendo 100% de compatibilidade.
+            </div>
+            
+            <h2>⚠️ Observações</h2>
+            
+            <div class="warning-box">
+                <strong>CEP sem hífen:</strong> Os CEPs devem ser informados sem hífen (8 dígitos). Exemplo: use <code>01001000</code> ao invés de <code>01001-000</code>.
+            </div>
+            
+            <div class="warning-box">
+                <strong>Espaços nas URLs:</strong> Para pesquisa por endereço, use <code>%20</code> ou <code>+</code> para representar espaços nos nomes de cidades. Exemplo: <code>Porto%20Alegre</code>.
+            </div>
+            
+            <div class="warning-box">
+                <strong>Mínimo de caracteres:</strong> A pesquisa por logradouro requer no mínimo 3 caracteres.
+            </div>
+        </div>
+        
+        <footer>
+            <p>
+                OpenCEP API | Dados fornecidos por 
+                <a href="https://github.com/SeuAliado/OpenCEP" target="_blank">OpenCEP</a> e 
+                <a href="https://viacep.com.br" target="_blank">ViaCEP</a>
+            </p>
+            <p style="margin-top: 10px; font-size: 0.85em;">
+                API gratuita e de código aberto 🚀
+            </p>
+        </footer>
+    </div>
+</body>
+</html>
