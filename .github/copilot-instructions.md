@@ -30,6 +30,10 @@ The entire routing logic is in `nginx.conf` using Nginx's `try_files` and `@fall
 
 ### Build & Run
 ```bash
+# Habilitar BuildKit para cache otimizado (recomendado)
+export DOCKER_BUILDKIT=1
+export COMPOSE_DOCKER_CLI_BUILD=1
+
 docker compose up -d --build
 ```
 
@@ -61,8 +65,9 @@ docker compose logs -f --tail=200
 1. **No runtime data**: The `v1/` directory is created during Docker build, never committed to Git (`.gitignore`)
 2. **Nginx regex patterns**: CEP patterns use named captures (`?<cep>\d{8}`) for clean proxy fallback
 3. **Multi-stage build**: Stage 1 downloads/extracts database, stage 2 uses minimal nginx:alpine
-4. **DNS resolver**: Hardcoded `8.8.8.8` in nginx.conf for upstream proxy resolution
-5. **Port mapping**: Container port 80 → host port 8080 (configurable in compose file)
+4. **BuildKit cache mounts**: Uses `--mount=type=cache` to persist downloaded ZIP between builds (~500MB saved)
+5. **DNS resolver**: Hardcoded `8.8.8.8` in nginx.conf for upstream proxy resolution
+6. **Port mapping**: Container port 80 → host port 8080 (configurable in compose file)
 
 ## External Dependencies
 

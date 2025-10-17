@@ -25,15 +25,28 @@ git clone https://github.com/ricardoapaes/opencep.git
 cd opencep
 ```
 
-2. Configure a versão da base de dados (opcional):
+2. Configure o ambiente (opcional):
 
 ```bash
-export OPENCEP_VERSION=2.0.1  # Versão padrão
+# Copiar arquivo de exemplo
+cp .env.example .env
+
+# Editar se necessário
+# OPENCEP_VERSION=2.0.1
+# DOCKER_BUILDKIT=1  # Habilita cache otimizado
 ```
 
 3. Inicie o container:
 
 ```bash
+# Opção 1: Usando o script helper (recomendado)
+./build.sh
+docker compose up -d
+
+# Opção 2: Manual com BuildKit habilitado
+export DOCKER_BUILDKIT=1
+export COMPOSE_DOCKER_CLI_BUILD=1
+
 docker compose up -d --build
 ```
 
@@ -224,6 +237,8 @@ opencep/
 ├── Dockerfile           # Multi-stage build: download base + nginx
 ├── docker-compose.yml   # Orquestração do container
 ├── nginx.conf          # Configuração das rotas e proxy
+├── build.sh            # Script helper para builds otimizados
+├── .env.example        # Exemplo de variáveis de ambiente
 └── README.md           # Este arquivo
 ```
 
@@ -233,6 +248,40 @@ opencep/
 docker compose down
 docker compose build --no-cache
 docker compose up -d
+```
+
+### Otimização de Build
+
+O projeto usa **BuildKit cache mounts** para evitar downloads repetidos da base de dados:
+
+**Performance:**
+
+- 🐌 **Primeiro build**: Download completo (~500MB) - ~2-3 minutos
+- 🚀 **Builds subsequentes**: Usa arquivo em cache - ~10-20 segundos!
+- 💾 **Cache persistente**: Arquivos mantidos entre builds
+
+**Como funciona:**
+
+```
+Primeiro build:  Download 500MB → Extrai → Build imagem
+                 ⏱️  ~2-3 minutos
+
+Segundo build:   Cache hit! → Extrai → Build imagem
+                 ⏱️  ~10-20 segundos (15x mais rápido!)
+```
+
+Para habilitar o BuildKit (recomendado):
+
+```bash
+export DOCKER_BUILDKIT=1
+export COMPOSE_DOCKER_CLI_BUILD=1
+docker compose build
+```
+
+Ou use o script helper:
+
+```bash
+./build.sh
 ```
 
 ### Testes
