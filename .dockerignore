@@ -1,3 +1,22 @@
+# Arquivos Docker
 docker-compose.yml
 Dockerfile
+.dockerignore
+
+# Base de dados (baixada durante build)
 v1/
+
+# Git
+.git
+.gitignore
+.github
+
+# Documentação
+README.md
+
+# Scripts
+build.sh
+
+# Environment files
+.env
+.env.example

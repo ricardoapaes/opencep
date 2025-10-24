@@ -6,7 +6,6 @@ services:
       dockerfile: Dockerfile
       args:
         - OPENCEP_VERSION=${OPENCEP_VERSION:-2.0.1}
-      # Habilita BuildKit cache mounts para builds mais rápidos
       x-bake:
         cache-from:
           - type=local,src=/tmp/.buildx-cache
