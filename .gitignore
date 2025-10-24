@@ -1,1 +1,34 @@
+# Base de dados gerada
 v1/
+*.db
+*.db-shm
+*.db-wal
+
+# Rust
+cep-indexer/target/
+cep-indexer/Cargo.lock
+cep-indexer/**/*.rs.bk
+
+# Build artifacts
+.buildx-cache/
+
+# Environment
+.env
+.env.local
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+.docker/
+
+# Logs
+*.log

@@ -1,9 +1,31 @@
 services:
+  # Servidor de busca reversa (Rust + SQLite)
+  cep-search:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: search-server
+      args:
+        - OPENCEP_VERSION=${OPENCEP_VERSION:-2.0.1}
+    ports:
+      - "3000:3000"
+    environment:
+      - DB_PATH=/data/cep_index.db
+      - PORT=3000
+    restart: always
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # API principal (Nginx + arquivos estáticos)
   opencep-api:
     image: ghcr.io/ricardoapaes/opencep:latest
     build:
       context: .
       dockerfile: Dockerfile
+      target: nginx-server
       args:
         - OPENCEP_VERSION=${OPENCEP_VERSION:-2.0.1}
       x-bake:
@@ -13,4 +35,6 @@ services:
           - type=local,dest=/tmp/.buildx-cache
     ports:
       - "8080:80"
+    depends_on:
+      - cep-search
     restart: always

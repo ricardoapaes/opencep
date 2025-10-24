@@ -5,11 +5,12 @@ API de consulta de CEPs brasileiros com cache local e fallback automático para 
 ## 🚀 Características
 
 - **Cache Local**: Base de dados completa de CEPs brasileiros servida localmente para máxima performance
+- **Busca Reversa Local**: 🆕 Pesquisa por endereço usando índice SQLite (Rust) com fallback para ViaCEP
 - **Fallback Inteligente**: Quando o CEP não está na base local, faz proxy automático para o ViaCEP
-- **Pesquisa por Endereço**: Suporta pesquisa por UF/Cidade/Logradouro (proxy para ViaCEP)
 - **100% Compatível**: Mesma API e formato de resposta do ViaCEP
+- **Alta Performance**: Rust + SQLite para buscas < 10ms
 - **Containerizado**: Deploy fácil com Docker/Podman
-- **Leve e Rápido**: Nginx Alpine com base de dados estática
+- **Leve e Rápido**: Nginx Alpine com base de dados estática + servidor Rust otimizado
 
 ## 📋 Pré-requisitos
 
@@ -119,6 +120,9 @@ curl http://localhost:8080/ws/87308084/json/
 
 **Endpoint**: `/ws/{UF}/{Cidade}/{Logradouro}/{formato}/`
 
+> 🆕 **Busca Local**: Agora usa índice SQLite local (Rust) para respostas ultrarrápidas (< 10ms)!  
+> Fallback automático para ViaCEP caso não encontre resultados.
+
 **Parâmetros**:
 - `UF`: Sigla do estado (2 letras maiúsculas)
 - `Cidade`: Nome da cidade (mínimo 3 caracteres)
@@ -136,26 +140,42 @@ curl http://localhost:8080/ws/RS/Porto%20Alegre/Domingos%20Jose/json/
 
 # Pesquisar por "Paulista" em São Paulo/SP
 curl http://localhost:8080/ws/SP/São%20Paulo/Paulista/json/
+
+# Com limite de resultados (padrão: 50, máximo: 100)
+curl "http://localhost:8080/ws/SP/São%20Paulo/Paulista/json/?limit=10"
 ```
 
-**Resposta** (retorna até 50 CEPs):
+**Resposta** (retorna até 50 CEPs por padrão):
 
 ```json
 [
   {
-    "cep": "90420-010",
-    "logradouro": "Rua Domingos José Poli",
-    "complemento": "",
-    "bairro": "Auxiliadora",
-    "localidade": "Porto Alegre",
-    "uf": "RS",
-    "ibge": "4314902",
-    "gia": "",
-    "ddd": "51",
-    "siafi": "8801"
+    "cep": "01310-100",
+    "logradouro": "Avenida Paulista",
+    "complemento": "lado ímpar",
+    "bairro": "Bela Vista",
+    "localidade": "São Paulo",
+    "uf": "SP",
+    "ibge": "3550308"
+  },
+  {
+    "cep": "01310-200",
+    "logradouro": "Avenida Paulista",
+    "complemento": "lado par",
+    "bairro": "Bela Vista",
+    "localidade": "São Paulo",
+    "uf": "SP",
+    "ibge": "3550308"
   }
 ]
 ```
+
+**Recursos da Busca Local**:
+- ✅ Normalização automática (remove acentos)
+- ✅ Busca parcial (LIKE)
+- ✅ Índices otimizados (UF + Cidade + Logradouro)
+- ✅ Limite configurável de resultados
+- ✅ Fallback para ViaCEP se vazio
 
 ### Rota Direta da Base Local
 
@@ -195,25 +215,38 @@ curl http://localhost:8080/health
 └──────┬──────┘
        │
        ▼
-┌─────────────────────────────────────┐
-│          Nginx (Alpine)              │
-│  ┌────────────────────────────────┐ │
-│  │  /ws/{cep}/{formato}/          │ │
-│  │  1. Try local: /v1/{cep}.json  │ │
-│  │  2. Fallback: ViaCEP           │ │
-│  └────────────────────────────────┘ │
-│  ┌────────────────────────────────┐ │
-│  │  /ws/{UF}/{Cidade}/{Log...}/   │ │
-│  │  Proxy: ViaCEP                 │ │
-│  └────────────────────────────────┘ │
-└─────────────────────────────────────┘
-       │                    │
-       ▼                    ▼
-┌──────────────┐    ┌──────────────┐
-│ Base Local   │    │   ViaCEP     │
-│ (JSON files) │    │   (Proxy)    │
-└──────────────┘    └──────────────┘
+┌───────────────────────────────────────────────┐
+│          Nginx (Alpine) - Port 80/8080         │
+│  ┌─────────────────────────────────────────┐  │
+│  │  /ws/{cep}/{formato}/                   │  │
+│  │  1. Try local: /v1/{cep}.json           │  │
+│  │  2. Fallback: ViaCEP                    │  │
+│  └─────────────────────────────────────────┘  │
+│  ┌─────────────────────────────────────────┐  │
+│  │  /ws/{UF}/{Cidade}/{Logradouro}/{fmt}/  │  │
+│  │  1. Proxy: Rust Search Server (SQLite)  │──┼──┐
+│  │  2. Fallback: ViaCEP                    │  │  │
+│  └─────────────────────────────────────────┘  │  │
+└───────────────┬───────────────────────────────┘  │
+                │                                   │
+                ▼                                   ▼
+        ┌──────────────┐              ┌────────────────────┐
+        │   ViaCEP     │              │  Rust Search       │
+        │   (Proxy)    │              │  Server (Port 3000)│
+        └──────────────┘              │  ┌──────────────┐  │
+                                      │  │  SQLite DB   │  │
+        ┌──────────────┐              │  │  (~500MB)    │  │
+        │ Base Local   │              │  │  Indexed     │  │
+        │ (JSON files) │              │  └──────────────┘  │
+        └──────────────┘              └────────────────────┘
 ```
+
+**Componentes**:
+- **Nginx**: Proxy reverso e servir arquivos estáticos
+- **Rust Search Server**: API de busca reversa com SQLite (assíncrono, Axum)
+- **SQLite Index**: Banco de dados com índices otimizados para busca por endereço
+- **Base Local JSON**: ~1.5M arquivos CEP individuais
+- **ViaCEP**: Fallback para CEPs novos ou não encontrados
 
 ## ⚙️ Configuração
 
@@ -287,12 +320,23 @@ docker run -d -p 8080:80 ghcr.io/ricardoapaes/opencep:pr-10
 
 ```
 opencep/
-├── Dockerfile           # Multi-stage build: download base + nginx
-├── docker-compose.yml   # Orquestração do container
-├── nginx.conf          # Configuração das rotas e proxy
-├── build.sh            # Script helper para builds otimizados
-├── .env.example        # Exemplo de variáveis de ambiente
-└── README.md           # Este arquivo
+├── Dockerfile              # Multi-stage: download + Rust build + indexação + runtime
+├── docker-compose.yml      # 2 serviços: nginx + rust search server
+├── nginx.conf             # Rotas com proxy para servidor Rust
+├── build.sh               # Script helper para builds (deprecated)
+├── build-all.sh           # 🆕 Script completo com busca reversa
+├── cep-indexer/           # 🆕 Código Rust
+│   ├── Cargo.toml         # Dependências (axum, rusqlite, etc)
+│   ├── src/
+│   │   ├── models.rs      # Estruturas de dados CEP
+│   │   ├── indexer.rs     # Indexador (cria SQLite)
+│   │   └── server.rs      # Servidor HTTP de busca
+│   └── README.md          # Documentação específica do Rust
+├── docs/
+│   ├── reverse-search.md  # 🆕 Documentação detalhada busca reversa
+│   ├── aws-ecs-deploy.md  # Deploy AWS ECS
+│   └── github-actions-ci.md
+└── README.md              # Este arquivo
 ```
 
 ### Rebuild Completo
@@ -367,16 +411,26 @@ Este projeto é fornecido "como está", sem garantias. Use por sua conta e risco
 
 ## 🐛 Problemas Conhecidos
 
-- A pesquisa por endereço sempre usa o ViaCEP (não há base local para essa funcionalidade)
+- ~~A pesquisa por endereço sempre usa o ViaCEP (não há base local para essa funcionalidade)~~ ✅ **RESOLVIDO**: Agora usa SQLite local!
 - CEPs novos não presentes na base local serão consultados via ViaCEP
 
 ## 💡 Roadmap
 
+- [x] **Busca reversa local** (Rust + SQLite)
+- [ ] Cache em memória (Redis) para queries frequentes
+- [ ] Métricas e observabilidade (Prometheus)
 - [ ] Atualização automática da base de dados
 - [ ] Suporte a HTTPS
-- [ ] Métricas e monitoramento
-- [ ] Cache de respostas do ViaCEP
 - [x] Health check endpoint
+- [ ] Fuzzy search (Levenshtein distance)
+- [ ] Autocomplete de cidades/ruas
+
+## 📚 Documentação Adicional
+
+- [📖 Busca Reversa - Documentação Técnica](docs/reverse-search.md)
+- [🚀 Deploy AWS ECS](docs/aws-ecs-deploy.md)
+- [🔧 GitHub Actions CI/CD](docs/github-actions-ci.md)
+- [⚙️ Código Rust - Indexador](cep-indexer/README.md)
 
 ## 📞 Contato
 

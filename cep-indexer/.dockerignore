@@ -1,0 +1,20 @@
+# Rust
+cep-indexer/target/
+cep-indexer/**/*.rs.bk
+cep-indexer/Cargo.lock
+
+# Database gerado
+*.db
+*.db-shm
+*.db-wal
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
