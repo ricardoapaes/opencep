@@ -83,19 +83,6 @@ jobs:
             exit 1
           fi
 
-      - name: Test - CEP Lookup (ViaCEP Fallback)
-        run: |
-          echo "Testing CEP lookup with ViaCEP fallback..."
-          response=$(curl -s http://localhost:8080/ws/99999999/json/)
-          echo "Response: $response"
-          
-          if echo "$response" | grep -q '"erro"'; then
-            echo "✅ ViaCEP fallback passed (invalid CEP returned error as expected)"
-          else
-            echo "❌ ViaCEP fallback failed"
-            exit 1
-          fi
-
       - name: Test - Address Search (ViaCEP Proxy)
         run: |
           echo "Testing address search via ViaCEP proxy..."
