@@ -18,6 +18,31 @@ API de consulta de CEPs brasileiros com cache local e fallback automático para 
 
 ## 🔧 Instalação
 
+### Usando imagem pré-construída (Recomendado)
+
+```bash
+# Usar imagem do GitHub Container Registry
+docker run -d -p 8080:80 ghcr.io/ricardoapaes/opencep:latest
+```
+
+Ou com Docker Compose:
+
+```yaml
+# docker-compose.yml
+services:
+  opencep-api:
+    image: ghcr.io/ricardoapaes/opencep:latest
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+```
+
+```bash
+docker compose up -d
+```
+
+### Build local
+
 1. Clone o repositório:
 
 ```bash
@@ -227,6 +252,34 @@ Ver últimas 200 linhas:
 ```bash
 docker compose logs -f --tail=200
 ```
+
+## 🚀 CI/CD
+
+O projeto possui workflow automatizado no GitHub Actions que:
+
+1. **Testa automaticamente** em cada push/PR:
+   - Health check endpoint
+   - Consulta por CEP (cache local)
+   - Fallback para ViaCEP
+   - Pesquisa por endereço
+   - Acesso direto à base local
+   - Página inicial
+
+2. **Publica imagem no GitHub Container Registry**:
+   - **Pull Requests**: `ghcr.io/ricardoapaes/opencep:pr-{número}`
+   - **Branch main**: `ghcr.io/ricardoapaes/opencep:latest`
+
+### Usar imagem de uma Pull Request
+
+```bash
+# Exemplo: testar imagem da PR #10
+docker pull ghcr.io/ricardoapaes/opencep:pr-10
+docker run -d -p 8080:80 ghcr.io/ricardoapaes/opencep:pr-10
+```
+
+### Ver status do CI
+
+[![CI/CD](https://github.com/ricardoapaes/opencep/actions/workflows/ci.yml/badge.svg)](https://github.com/ricardoapaes/opencep/actions/workflows/ci.yml)
 
 ## 🛠️ Desenvolvimento
 

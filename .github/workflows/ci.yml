@@ -1,0 +1,170 @@
+name: CI/CD - OpenCEP API
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=pr,prefix=pr-
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix={{branch}}-
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          load: true
+          tags: opencep-api:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Start container for testing
+        run: |
+          docker run -d --name opencep-test -p 8080:80 opencep-api:test
+          sleep 5
+
+      - name: Test - Health Check
+        run: |
+          echo "Testing health check endpoint..."
+          response=$(curl -s http://localhost:8080/health)
+          echo "Response: $response"
+          
+          if echo "$response" | grep -q '"status":"ok"'; then
+            echo "✅ Health check passed"
+          else
+            echo "❌ Health check failed"
+            exit 1
+          fi
+
+      - name: Test - CEP Lookup (Local Cache)
+        run: |
+          echo "Testing CEP lookup from local cache..."
+          response=$(curl -s http://localhost:8080/ws/01001000/json/)
+          echo "Response: $response"
+          
+          if echo "$response" | grep -q '"cep"'; then
+            echo "✅ CEP lookup passed"
+          else
+            echo "❌ CEP lookup failed"
+            exit 1
+          fi
+
+      - name: Test - CEP Lookup (ViaCEP Fallback)
+        run: |
+          echo "Testing CEP lookup with ViaCEP fallback..."
+          response=$(curl -s http://localhost:8080/ws/99999999/json/)
+          echo "Response: $response"
+          
+          if echo "$response" | grep -q '"erro"'; then
+            echo "✅ ViaCEP fallback passed (invalid CEP returned error as expected)"
+          else
+            echo "❌ ViaCEP fallback failed"
+            exit 1
+          fi
+
+      - name: Test - Address Search (ViaCEP Proxy)
+        run: |
+          echo "Testing address search via ViaCEP proxy..."
+          response=$(curl -s http://localhost:8080/ws/RS/Porto%20Alegre/Domingos/json)
+          echo "Response: $response"
+          
+          if echo "$response" | grep -q '\[' || echo "$response" | grep -q '"cep"'; then
+            echo "✅ Address search passed"
+          else
+            echo "❌ Address search failed"
+            exit 1
+          fi
+
+      - name: Test - Direct v1 Access
+        run: |
+          echo "Testing direct v1 JSON access..."
+          response=$(curl -s http://localhost:8080/v1/01001000.json)
+          echo "Response: $response"
+          
+          if echo "$response" | grep -q '"cep"'; then
+            echo "✅ Direct v1 access passed"
+          else
+            echo "❌ Direct v1 access failed"
+            exit 1
+          fi
+
+      - name: Test - Homepage
+        run: |
+          echo "Testing homepage..."
+          response=$(curl -s http://localhost:8080/)
+          echo "Response (first 200 chars): ${response:0:200}"
+          
+          if echo "$response" | grep -q 'OpenCEP' || echo "$response" | grep -q 'API'; then
+            echo "✅ Homepage passed"
+          else
+            echo "❌ Homepage failed"
+            exit 1
+          fi
+
+      - name: Show container logs
+        if: failure()
+        run: docker logs opencep-test
+
+      - name: Stop test container
+        if: always()
+        run: docker rm -f opencep-test || true
+
+      - name: Build and push Docker image
+        if: success()
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Print image tags
+        if: success()
+        run: |
+          echo "✅ Image successfully pushed to GitHub Container Registry!"
+          echo ""
+          echo "Published tags:"
+          echo "${{ steps.meta.outputs.tags }}"
+          echo ""
+          echo "Pull command:"
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            echo "docker pull ghcr.io/${{ github.repository }}:pr-${{ github.event.pull_request.number }}"
+          else
+            echo "docker pull ghcr.io/${{ github.repository }}:latest"
+          fi

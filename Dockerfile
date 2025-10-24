@@ -18,9 +18,11 @@ RUN --mount=type=cache,target=/cache \
     && unzip -o -q "${CACHE_FILE}" -d ${TARGET_DIR} \
     && echo "Download concluído: $(ls -lh ${TARGET_DIR}/v1 | wc -l) arquivos"
 
-FROM nginx:alpine
+FROM nginx:alpine as cep
 RUN rm /etc/nginx/conf.d/default.conf
 COPY --from=downloader /usr/share/nginx/html /usr/share/nginx/html
+
+FROM cep
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY index.html /usr/share/nginx/html/index.html
 EXPOSE 80
