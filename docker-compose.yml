@@ -11,6 +11,9 @@ services:
           - type=local,src=/tmp/.buildx-cache
         cache-to:
           - type=local,dest=/tmp/.buildx-cache
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf
+      - ./index.html:/usr/share/nginx/html/index.html
     ports:
       - "8080:80"
     restart: always

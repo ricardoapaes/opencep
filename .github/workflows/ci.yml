@@ -124,6 +124,20 @@ jobs:
             exit 1
           fi
 
+      - name: Test - CORS Preflight Request
+        run: |
+          echo "Testing CORS preflight request..."
+          response_headers=$(curl -i -s -X OPTIONS -H "Origin: https://example.com" -H "Access-Control-Request-Method: GET" http://localhost:8080/ws/01001000/json/)
+          echo "Response headers:"
+          echo "$response_headers"
+          
+          if echo "$response_headers" | grep -iq "access-control-allow-origin: *"; then
+            echo "✅ CORS preflight test passed"
+          else
+            echo "❌ CORS preflight test failed"
+            exit 1
+          fi
+
       - name: Show container logs
         if: failure()
         run: docker logs opencep-test
