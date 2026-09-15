@@ -138,6 +138,28 @@ jobs:
             exit 1
           fi
 
+      - name: Test - CORS Headers Not Duplicated on ViaCEP Fallback
+        run: |
+          echo "Testing CORS headers are not duplicated when request falls back to ViaCEP..."
+          response_headers=$(curl -i -s http://localhost:8080/ws/99999999/json/)
+          echo "Response headers:"
+          echo "$response_headers"
+
+          origin_count=$(echo "$response_headers" | grep -ic "^access-control-allow-origin:")
+          methods_count=$(echo "$response_headers" | grep -ic "^access-control-allow-methods:")
+          headers_count=$(echo "$response_headers" | grep -ic "^access-control-allow-headers:")
+
+          echo "access-control-allow-origin occurrences: $origin_count"
+          echo "access-control-allow-methods occurrences: $methods_count"
+          echo "access-control-allow-headers occurrences: $headers_count"
+
+          if [ "$origin_count" -eq 1 ] && [ "$methods_count" -eq 1 ] && [ "$headers_count" -eq 1 ]; then
+            echo "✅ CORS headers are not duplicated on fallback"
+          else
+            echo "❌ CORS headers are duplicated on fallback"
+            exit 1
+          fi
+
       - name: Show container logs
         if: failure()
         run: docker logs opencep-test
