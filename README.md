@@ -220,6 +220,11 @@ curl http://localhost:8080/health
 ### Variáveis de Ambiente
 
 - `OPENCEP_VERSION`: Versão da base de dados OpenCEP (padrão: `2.0.1`)
+- `NGINX_DNS_RESOLVER`: endereço do servidor DNS usado pelo Nginx para resolver o ViaCEP. A imagem usa `1.1.1.1` por padrão (requer saída DNS para esse endereço); o Compose usa `127.0.0.11`, DNS interno da rede Docker. Em ECS EC2, a task define `169.254.169.253` via variável `nginx_dns_resolver` na IaC. Configure um endereço alcançável pela sua hospedagem antes de publicar a imagem em outra rede. Não configure uma lista mista de servidores com alcançabilidade diferente.
+
+O arquivo `default.conf.template` é renderizado pelo entrypoint oficial da imagem Nginx em `/etc/nginx/conf.d/default.conf` a cada inicialização. O filtro `NGINX_ENVSUBST_FILTER=^NGINX_DNS_RESOLVER$` substitui **somente** o resolver; variáveis de rota do Nginx como `$request_uri`, `$viacep_host` e capturas continuam intactas. Não monte um arquivo diretamente sobre a configuração gerada.
+
+Para usar outro DNS, passe `-e NGINX_DNS_RESOLVER=<IP_DNS>` no `docker run`, defina `NGINX_DNS_RESOLVER` no ambiente do Compose ou altere a variável de entrada da IaC para ECS. O valor deve ser um endereço DNS aceito pela diretiva `resolver` do Nginx e acessível do contêiner (não um IP de DNS exclusivo da AWS fora dela).
 
 ### Portas
 
@@ -258,6 +263,8 @@ docker compose logs -f --tail=200
 O projeto possui workflow automatizado no GitHub Actions que:
 
 1. **Testa automaticamente** em cada push/PR:
+   - Renderização do DNS padrão e alternativo, preservação das variáveis Nginx e `nginx -t`
+   - Resolução de DNS e endpoints de proxy em rede Docker com resolver alternativo
    - Health check endpoint
    - Consulta por CEP (cache local)
    - Fallback para ViaCEP
@@ -289,7 +296,8 @@ docker run -d -p 8080:80 ghcr.io/ricardoapaes/opencep:pr-10
 opencep/
 ├── Dockerfile           # Multi-stage build: download base + nginx
 ├── docker-compose.yml   # Orquestração do container
-├── nginx.conf          # Configuração das rotas e proxy
+├── default.conf.template # Rotas e proxy; DNS renderizado no startup
+├── .devcontainer/      # Ambiente mínimo para inspecionar/testar configuração Nginx
 ├── build.sh            # Script helper para builds otimizados
 ├── .env.example        # Exemplo de variáveis de ambiente
 └── README.md           # Este arquivo
@@ -338,6 +346,8 @@ Ou use o script helper:
 ```
 
 ### Testes
+
+O Dev Container usa `nginx:alpine` sem Docker socket, instalação automática ou acesso à AWS. Nele, após autorização para iniciá-lo, pode-se renderizar manualmente o template com `envsubst` e validar com `nginx -t`; testes de build da imagem, DNS da rede Docker e endpoints ficam na CI, pois exigem lifecycle de contêineres. A configuração roda como root porque o Nginx precisa escrever PID/logs durante `nginx -t`; não há montagem de credenciais nem comandos de inicialização do projeto. Iniciar/reconstruir o Dev Container exige autorização separada.
 
 ```bash
 # Testar CEP local

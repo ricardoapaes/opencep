@@ -23,6 +23,8 @@ RUN rm /etc/nginx/conf.d/default.conf
 COPY --from=downloader /usr/share/nginx/html /usr/share/nginx/html
 
 FROM cep
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+ENV NGINX_DNS_RESOLVER=1.1.1.1 \
+    NGINX_ENVSUBST_FILTER=^NGINX_DNS_RESOLVER$
+COPY default.conf.template /etc/nginx/templates/default.conf.template
 COPY index.html /usr/share/nginx/html/index.html
 EXPOSE 80
