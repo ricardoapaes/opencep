@@ -1,0 +1,109 @@
+server {
+    listen 80;
+    server_name localhost;
+
+    root /usr/share/nginx/html;
+
+    # Resolver definido pela hospedagem na inicialização do container.
+    resolver ${NGINX_DNS_RESOLVER} valid=300s ipv6=off;
+    resolver_timeout 10s;
+    
+    set $viacep_host "viacep.com.br";
+
+    # --- Configurações Globais ---
+
+    # Adiciona cabeçalhos CORS a todas as respostas, incluindo erros.
+    add_header 'Access-Control-Allow-Origin' '*' always;
+    add_header 'Access-Control-Allow-Methods' 'GET, OPTIONS' always;
+    add_header 'Access-Control-Allow-Headers' 'Origin, X-Requested-With, Content-Type, Accept' always;
+    add_header 'Access-Control-Max-Age' '86400' always; # Cache preflight por 24h
+
+    # --- Endpoints ---
+
+    # Health check
+    location /health {
+        if ($request_method = 'OPTIONS') {
+            return 204;
+        }
+
+        access_log off;
+        add_header Content-Type application/json;
+        return 200 '{"status":"ok","service":"opencep-api","timestamp":"$time_iso8601"}\n';
+    }
+
+    # Pesquisa por CEP com hífen (ex: /ws/01001-000/json/)
+    # Remove o hífen e tenta buscar o arquivo local antes do fallback.
+    location ~ "^/ws/(?<cep_part1>\d{5})-(?<cep_part2>\d{3})/(json|xml)/?$" {
+        if ($request_method = 'OPTIONS') {
+            return 204;
+        }
+
+        set $cep "${cep_part1}${cep_part2}";
+        try_files /v1/$cep.json @fallback_viacep;
+    }
+
+    # Pesquisa por CEP sem hífen (ex: /ws/01001000/json/)
+    # Tenta o arquivo local primeiro, depois faz fallback para o ViaCEP.
+    location ~ "^/ws/(?<cep>\d{8})/(json|xml)/?$" {
+        if ($request_method = 'OPTIONS') {
+            return 204;
+        }
+
+        try_files /v1/$cep.json @fallback_viacep;
+    }
+
+    # Pesquisa por endereço (UF/Cidade/Logradouro)
+    # Faz proxy direto para o ViaCEP, pois não há busca local para isso.
+    location ~ "^/ws/(?<uf>[A-Z]{2})/(?<cidade>[^/]+)/(?<logradouro>[^/]+)/(json|xml)/?$" {
+        # Responde imediatamente a requisições preflight (OPTIONS)
+        if ($request_method = 'OPTIONS') {
+            return 204;
+        }
+
+        proxy_hide_header 'Access-Control-Allow-Origin';
+        proxy_hide_header 'Access-Control-Allow-Methods';
+        proxy_hide_header 'Access-Control-Allow-Headers';
+        proxy_hide_header 'Access-Control-Allow-Credentials';
+        proxy_hide_header 'Access-Control-Max-Age';
+
+        proxy_pass https://$viacep_host$request_uri;
+        proxy_ssl_server_name on;
+        proxy_set_header Host $viacep_host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_connect_timeout 10s;
+        proxy_read_timeout 10s;
+    }
+    
+    # Acesso direto aos arquivos JSON do OpenCEP (sem fallback)
+    location ~ "^/v1/(\d{8})\.json$" {
+        if ($request_method = 'OPTIONS') {
+            return 204;
+        }
+
+        default_type application/json;
+        try_files $uri =404;
+    }
+
+    # --- Fallback e Locations Internas ---
+
+    # Fallback para o ViaCEP quando o CEP não é encontrado localmente.
+    # O $request_uri original é passado, mantendo o formato do CEP.
+    location @fallback_viacep {
+        proxy_hide_header 'Access-Control-Allow-Origin';
+        proxy_hide_header 'Access-Control-Allow-Methods';
+        proxy_hide_header 'Access-Control-Allow-Headers';
+        proxy_hide_header 'Access-Control-Allow-Credentials';
+        proxy_hide_header 'Access-Control-Max-Age';
+
+        proxy_pass https://$viacep_host$request_uri;
+        proxy_ssl_server_name on;
+        proxy_set_header Host $viacep_host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_connect_timeout 10s;
+        proxy_read_timeout 10s;
+    }
+}

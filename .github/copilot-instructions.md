@@ -18,7 +18,7 @@ CEP Lookup:     /v1/{cep}.json (static files)
 Reverse Search: Rust Server:3000 → SQLite (~500MB indexed)
 ```
 
-### Routing Logic (nginx.conf)
+The entire routing logic is in `default.conf.template` using Nginx's `try_files` and `@fallback_viacep` location:
 
 1. **CEP Lookup** (`/ws/{cep}/{format}/`): 
    - Attempts local file first
@@ -36,22 +36,10 @@ Reverse Search: Rust Server:3000 → SQLite (~500MB indexed)
 
 ## Key Files & Responsibilities
 
-### Infrastructure
-- **`nginx.conf`**: All routing logic, regex patterns, proxy configuration
-- **`Dockerfile`**: Multi-stage build (download → Rust compile → index → runtime)
-- **`docker-compose.yml`**: Two services (nginx + rust search server)
-- **`.dockerignore`**: Excludes `v1/` and build artifacts
-
-### Rust Components (NEW)
-- **`cep-indexer/Cargo.toml`**: Dependencies (axum, rusqlite, tokio, etc)
-- **`cep-indexer/src/models.rs`**: CEP data structures
-- **`cep-indexer/src/indexer.rs`**: Reads JSONs → creates SQLite with indexes
-- **`cep-indexer/src/server.rs`**: HTTP server (Axum) for reverse search
-
-### Documentation
-- **`README.md`**: Main user-facing documentation
-- **`docs/reverse-search.md`**: Detailed technical docs for reverse search
-- **`cep-indexer/README.md`**: Rust module documentation
+- **`default.conf.template`**: All routing logic, regex patterns, proxy configuration, and fallback behavior; rendered at startup
+- **`Dockerfile`**: Multi-stage build that downloads OpenCEP database (stage 1) and copies to Nginx image (stage 2)
+- **`docker-compose.yml`**: Single service definition with `OPENCEP_VERSION` build arg
+- **`.dockerignore`**: Excludes `v1/` directory (downloaded during build, not from local files)
 
 ## Development Workflows
 
@@ -124,19 +112,8 @@ docker compose logs -f opencep-api          # Nginx only
    - Stage 4: Prepares Rust search server runtime
    - Stage 5: Prepares Nginx with static files
 4. **BuildKit cache mounts**: Uses `--mount=type=cache` to persist downloaded ZIP between builds (~500MB saved)
-5. **DNS resolver**: Hardcoded `169.254.169.253` (AWS VPC) + `8.8.8.8`/`8.8.4.4` fallback in nginx.conf
-6. **Port mapping**: 
-   - Nginx: container 80 → host 8080
-   - Rust server: container 3000 → host 3000
-7. **Rust server**: 
-   - Axum async HTTP server
-   - r2d2 connection pool for SQLite
-   - Normalizes text (removes accents) for better search
-   - Returns max 100 results per query
-8. **SQLite indexes**: 
-   - Composite indexes on (UF, localidade, logradouro)
-   - Normalized search table for accent-insensitive queries
-   - ~500MB final size with all indexes
+5. **DNS resolver**: `NGINX_DNS_RESOLVER` is substituted at startup (image default `1.1.1.1`, Compose `127.0.0.11`, ECS task `169.254.169.253`); the substitution filter preserves Nginx variables
+6. **Port mapping**: Container port 80 → host port 8080 (configurable in compose file)
 
 ## External Dependencies
 
@@ -151,30 +128,10 @@ docker compose logs -f opencep-api          # Nginx only
 
 ## When Making Changes
 
-### Routing Changes
-- Edit `nginx.conf` regex patterns carefully - they must match ViaCEP's exact URL structure
-- Remember to update both local and fallback locations
-- Test with `./test-api.sh` script
-
-### Database Updates
-- Change `OPENCEP_VERSION` arg and rebuild with `--no-cache`
-- Indexing takes 15-20 minutes for full database
-
-### New Endpoints
-- Decide if local-first or proxy-only
-- For local-first, consider adding to Rust server
-- For proxy-only, add nginx location block
-
-### Rust Changes
-- Edit files in `cep-indexer/src/`
-- Rebuild Docker images (compilation happens in container)
-- For local testing: `cd cep-indexer && cargo run --release --bin <binary>`
-
-### Performance
-- Static file serving is intentional - avoid adding application logic outside Nginx
-- SQLite queries use prepared statements and indexes
-- Connection pooling prevents database lock contention
-- Consider adding Redis cache for frequently accessed queries
+- **Routing changes**: Edit `default.conf.template` regex patterns carefully - they must match ViaCEP's exact URL structure
+- **Database updates**: Change `OPENCEP_VERSION` arg and rebuild with `--no-cache`
+- **New endpoints**: Remember the two-tier pattern - decide if local-first or proxy-only
+- **Performance**: Static file serving is intentional - avoid adding application logic outside Nginx
 
 ## Debugging Tips
 

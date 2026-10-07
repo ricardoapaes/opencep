@@ -1,0 +1,6 @@
+{
+  "name": "OpenCEP Nginx config",
+  "image": "nginx:alpine",
+  "workspaceFolder": "/workspaces/opencep",
+  "remoteUser": "root"
+}

@@ -66,6 +66,9 @@ CMD ["search-server"]
 FROM nginx:alpine as nginx-server
 RUN rm /etc/nginx/conf.d/default.conf
 
+ENV NGINX_DNS_RESOLVER=1.1.1.1 \
+    NGINX_ENVSUBST_FILTER=^NGINX_DNS_RESOLVER$
+
 COPY --from=downloader /usr/share/nginx/html /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY index.html /usr/share/nginx/html/index.html
