@@ -9,6 +9,7 @@ server {
     resolver_timeout 10s;
     
     set $viacep_host "viacep.com.br";
+    set $search_server "cep-search:3000";
 
     # --- Configurações Globais ---
 
