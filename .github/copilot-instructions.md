@@ -12,7 +12,7 @@ This is a containerized Brazilian ZIP code (CEP) lookup API that provides 100% c
 Request → Nginx → Try local /v1/{cep}.json → Fallback to ViaCEP proxy
 ```
 
-The entire routing logic is in `nginx.conf` using Nginx's `try_files` and `@fallback_viacep` location:
+The entire routing logic is in `default.conf.template` using Nginx's `try_files` and `@fallback_viacep` location:
 
 1. **CEP Lookup** (`/ws/{cep}/{format}/`): Attempts local file first, proxies to ViaCEP on miss
 2. **Address Search** (`/ws/{UF}/{City}/{Street}/{format}/`): Always proxies to ViaCEP (no local database)
@@ -21,7 +21,7 @@ The entire routing logic is in `nginx.conf` using Nginx's `try_files` and `@fall
 
 ## Key Files & Responsibilities
 
-- **`nginx.conf`**: All routing logic, regex patterns, proxy configuration, and fallback behavior
+- **`default.conf.template`**: All routing logic, regex patterns, proxy configuration, and fallback behavior; rendered at startup
 - **`Dockerfile`**: Multi-stage build that downloads OpenCEP database (stage 1) and copies to Nginx image (stage 2)
 - **`docker-compose.yml`**: Single service definition with `OPENCEP_VERSION` build arg
 - **`.dockerignore`**: Excludes `v1/` directory (downloaded during build, not from local files)
@@ -66,7 +66,7 @@ docker compose logs -f --tail=200
 2. **Nginx regex patterns**: CEP patterns use named captures (`?<cep>\d{8}`) for clean proxy fallback
 3. **Multi-stage build**: Stage 1 downloads/extracts database, stage 2 uses minimal nginx:alpine
 4. **BuildKit cache mounts**: Uses `--mount=type=cache` to persist downloaded ZIP between builds (~500MB saved)
-5. **DNS resolver**: Hardcoded `8.8.8.8` in nginx.conf for upstream proxy resolution
+5. **DNS resolver**: `NGINX_DNS_RESOLVER` is substituted at startup (image default `1.1.1.1`, Compose `127.0.0.11`, ECS task `169.254.169.253`); the substitution filter preserves Nginx variables
 6. **Port mapping**: Container port 80 → host port 8080 (configurable in compose file)
 
 ## External Dependencies
@@ -76,7 +76,7 @@ docker compose logs -f --tail=200
 
 ## When Making Changes
 
-- **Routing changes**: Edit `nginx.conf` regex patterns carefully - they must match ViaCEP's exact URL structure
+- **Routing changes**: Edit `default.conf.template` regex patterns carefully - they must match ViaCEP's exact URL structure
 - **Database updates**: Change `OPENCEP_VERSION` arg and rebuild with `--no-cache`
 - **New endpoints**: Remember the two-tier pattern - decide if local-first or proxy-only
 - **Performance**: Static file serving is intentional - avoid adding application logic outside Nginx

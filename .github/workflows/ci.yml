@@ -59,6 +59,43 @@ jobs:
           docker run -d --name opencep-test -p 8080:80 opencep-api:test
           sleep 5
 
+      - name: Test - Default DNS template and proxy
+        run: |
+          docker exec opencep-test nginx -t
+          docker exec opencep-test sh -c '
+            config=/etc/nginx/conf.d/default.conf
+            grep -Fq "resolver 1.1.1.1 valid=300s ipv6=off;" "$config" &&
+            grep -Fq '\''proxy_pass https://$viacep_host$request_uri;'\'' "$config" &&
+            grep -Fq '\''${cep_part1}${cep_part2}'\'' "$config" &&
+            grep -Fq '\''(?<cep>\d{8})'\'' "$config" &&
+            ! grep -Fq '\''${NGINX_DNS_RESOLVER}'\'' "$config"
+          '
+          # A pesquisa por endereço abaixo verifica a resolução usada pelo próprio Nginx.
+
+      - name: Test - Alternate DNS on a Docker network
+        run: |
+          docker network create opencep-dns-test
+          docker run -d --name opencep-dns-test --network opencep-dns-test -p 8081:80 \
+            -e NGINX_DNS_RESOLVER=127.0.0.11 opencep-api:test
+          docker exec opencep-dns-test nginx -t
+          docker exec opencep-dns-test sh -c '
+            config=/etc/nginx/conf.d/default.conf
+            grep -Fq "resolver 127.0.0.11 valid=300s ipv6=off;" "$config" &&
+            grep -Fq '\''proxy_pass https://$viacep_host$request_uri;'\'' "$config" &&
+            grep -Fq '\''${cep_part1}${cep_part2}'\'' "$config" &&
+            grep -Fq '\''(?<cep>\d{8})'\'' "$config" &&
+            ! grep -Fq '\''${NGINX_DNS_RESOLVER}'\'' "$config"
+          '
+          response=$(curl -fsS http://localhost:8081/health)
+          grep -q '"status":"ok"' <<< "$response"
+          response=$(curl -fsS http://localhost:8081/v1/01001000.json)
+          grep -q '"cep"' <<< "$response"
+          response=$(curl -fsS http://localhost:8081/ws/RS/Porto%20Alegre/Domingos/json)
+          grep -Eq '\[|"cep"' <<< "$response"
+          # Exercita também o @fallback_viacep; o ViaCEP pode retornar erro ou CEP.
+          response=$(curl -fsS http://localhost:8081/ws/99999999/json/)
+          grep -Eq '"erro"|"cep"' <<< "$response"
+
       - name: Test - Health Check
         run: |
           echo "Testing health check endpoint..."
@@ -162,11 +199,15 @@ jobs:
 
       - name: Show container logs
         if: failure()
-        run: docker logs opencep-test
+        run: |
+          docker logs opencep-test || true
+          docker logs opencep-dns-test || true
 
       - name: Stop test container
         if: always()
-        run: docker rm -f opencep-test || true
+        run: |
+          docker rm -f opencep-test opencep-dns-test || true
+          docker network rm opencep-dns-test || true
 
       - name: Build and push Docker image
         if: success()

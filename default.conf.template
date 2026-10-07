@@ -4,8 +4,8 @@ server {
 
     root /usr/share/nginx/html;
 
-    # DNS resolver para AWS ECS com fallback para Google DNS
-    resolver 169.254.169.253 8.8.8.8 8.8.4.4 valid=300s ipv6=off;
+    # Resolver definido pela hospedagem na inicialização do container.
+    resolver ${NGINX_DNS_RESOLVER} valid=300s ipv6=off;
     resolver_timeout 10s;
     
     set $viacep_host "viacep.com.br";
