@@ -2,7 +2,6 @@
 # Script de teste rápido para a API OpenCEP com busca reversa
 
 BASE_URL="${BASE_URL:-http://localhost:8080}"
-SEARCH_URL="${SEARCH_URL:-http://localhost:3000}"
 
 echo "🧪 Testes da API OpenCEP"
 echo "========================"
@@ -36,7 +35,7 @@ echo ""
 
 # Health checks
 test_endpoint "Nginx Health" "$BASE_URL/health"
-test_endpoint "Search Server Health" "$SEARCH_URL/health"
+test_endpoint "Search Index Readiness" "$BASE_URL/ready"
 
 echo ""
 echo "🔍 Testando busca por CEP..."

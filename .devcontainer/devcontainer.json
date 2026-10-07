@@ -1,6 +1,12 @@
 {
-  "name": "OpenCEP Nginx config",
-  "image": "nginx:alpine",
+  "name": "OpenCEP Rust development",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "."
+  },
   "workspaceFolder": "/workspaces/opencep",
-  "remoteUser": "root"
+  "remoteUser": "root",
+  "remoteEnv": {
+    "PATH": "/usr/local/cargo/bin:${containerEnv:PATH}"
+  }
 }

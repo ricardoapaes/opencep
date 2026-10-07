@@ -1,7 +1,6 @@
 # Rust
-cep-indexer/target/
-cep-indexer/**/*.rs.bk
-cep-indexer/Cargo.lock
+target/
+**/*.rs.bk
 
 # Database gerado
 *.db

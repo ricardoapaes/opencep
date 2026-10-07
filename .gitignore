@@ -6,7 +6,6 @@ v1/
 
 # Rust
 cep-indexer/target/
-cep-indexer/Cargo.lock
 cep-indexer/**/*.rs.bk
 
 # Build artifacts

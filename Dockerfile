@@ -1,7 +1,7 @@
 # ============================================================
 # Stage 1: Baixar base OpenCEP
 # ============================================================
-FROM alpine:3.18 AS downloader
+FROM alpine:3.22 AS downloader
 ARG OPENCEP_VERSION=2.0.1
 RUN apk update && apk add curl unzip
 
@@ -24,53 +24,70 @@ RUN --mount=type=cache,target=/cache \
 # ============================================================
 # Stage 2: Compilar binários Rust
 # ============================================================
-FROM rust:1.81-alpine AS rust-builder
-RUN apk add --no-cache musl-dev sqlite-dev
+FROM rust:1.89-alpine AS rust-builder
+RUN apk add --no-cache musl-dev
 
 WORKDIR /build
 COPY cep-indexer/ .
 
-# Compilar em modo release com otimizações
-RUN cargo build --release --bins
+# Compilar em modo release com dependências reproduzíveis
+RUN cargo build --release --locked --bins
+
+FROM rust-builder AS rust-tests
+RUN cargo test --locked --lib --tests
 
 # ============================================================
-# Stage 3: Indexar CEPs (criar banco SQLite)
+# Stage 3: Indexar CEPs
 # ============================================================
-FROM alpine:3.19 AS indexer
-RUN apk add --no-cache sqlite libgcc
+FROM alpine:3.22 AS indexer-base
+RUN apk add --no-cache libgcc
 
 COPY --from=rust-builder /build/target/release/indexer /usr/local/bin/indexer
+
+FROM indexer-base AS fixture-indexer
+COPY cep-indexer/tests/fixtures /data/v1
+RUN JSON_DIR=/data/v1 INDEX_PATH=/data/cep_index OPENCEP_VERSION=ci-fixture indexer
+
+FROM indexer-base AS indexer
 COPY --from=downloader /usr/share/nginx/html/v1 /data/v1
 
-# Criar índice SQLite
-RUN JSON_DIR=/data/v1 DB_PATH=/data/cep_index.db indexer
+# Criar índice textual versionado
+ARG OPENCEP_VERSION=2.0.1
+RUN JSON_DIR=/data/v1 INDEX_PATH=/data/cep_index OPENCEP_VERSION=${OPENCEP_VERSION} indexer
 
 # ============================================================
 # Stage 4: Imagem runtime do servidor de busca
 # ============================================================
-FROM rust:1.81-alpine AS search-server
+FROM alpine:3.22 AS search-runtime
 RUN apk add --no-cache libgcc
 
 COPY --from=rust-builder /build/target/release/search-server /usr/local/bin/search-server
-COPY --from=indexer /data/cep_index.db /data/cep_index.db
-
-ENV DB_PATH=/data/cep_index.db
+ENV INDEX_PATH=/data/cep_index
 ENV PORT=3000
 EXPOSE 3000
-
 CMD ["search-server"]
+
+FROM search-runtime AS search-server-test
+COPY --from=fixture-indexer /data/cep_index /data/cep_index
+
+FROM search-runtime AS search-server
+COPY --from=indexer /data/cep_index /data/cep_index
 
 # ============================================================
 # Stage 5: Nginx (servidor principal)
 # ============================================================
-FROM nginx:alpine as nginx-server
+FROM nginx:alpine AS nginx-base
 RUN rm /etc/nginx/conf.d/default.conf
 
 ENV NGINX_DNS_RESOLVER=1.1.1.1 \
     NGINX_ENVSUBST_FILTER=^NGINX_DNS_RESOLVER$
 
-COPY --from=downloader /usr/share/nginx/html /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY default.conf.template /etc/nginx/templates/default.conf.template
 COPY index.html /usr/share/nginx/html/index.html
-
 EXPOSE 80
+
+FROM nginx-base AS nginx-server-test
+COPY cep-indexer/tests/fixtures /usr/share/nginx/html/v1
+
+FROM nginx-base AS nginx-server
+COPY --from=downloader /usr/share/nginx/html /usr/share/nginx/html

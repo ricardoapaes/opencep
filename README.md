@@ -5,10 +5,10 @@ API de consulta de CEPs brasileiros com cache local e fallback automático para 
 ## 🚀 Características
 
 - **Cache Local**: Base de dados completa de CEPs brasileiros servida localmente para máxima performance
-- **Busca Reversa Local**: 🆕 Pesquisa por endereço usando índice SQLite (Rust) com fallback para ViaCEP
+- **Busca Reversa Local**: Pesquisa por endereço usando índice Tantivy embutido no serviço Rust
 - **Fallback Inteligente**: Quando o CEP não está na base local, faz proxy automático para o ViaCEP
 - **100% Compatível**: Mesma API e formato de resposta do ViaCEP
-- **Alta Performance**: Rust + SQLite para buscas < 10ms
+- **Busca Tolerante**: Normalização de acentos, abreviações e pequenos erros de digitação
 - **Containerizado**: Deploy fácil com Docker/Podman
 - **Leve e Rápido**: Nginx Alpine com base de dados estática + servidor Rust otimizado
 
@@ -19,12 +19,15 @@ API de consulta de CEPs brasileiros com cache local e fallback automático para 
 
 ## 🔧 Instalação
 
-### Usando imagem pré-construída (Recomendado)
+### Usando apenas a imagem Nginx
 
 ```bash
 # Usar imagem do GitHub Container Registry
 docker run -d -p 8080:80 ghcr.io/ricardoapaes/opencep:latest
 ```
+
+A imagem Nginx isolada atende consultas diretas por CEP. Para busca reversa local,
+use o Compose do repositório, que também constrói e inicia `cep-search`.
 
 Ou com Docker Compose:
 
@@ -120,14 +123,15 @@ curl http://localhost:8080/ws/87308084/json/
 
 **Endpoint**: `/ws/{UF}/{Cidade}/{Logradouro}/{formato}/`
 
-> 🆕 **Busca Local**: Agora usa índice SQLite local (Rust) para respostas ultrarrápidas (< 10ms)!  
-> Fallback automático para ViaCEP caso não encontre resultados.
+> **Busca Local**: usa um índice Tantivy local no serviço Rust, sem depender do
+> ViaCEP para buscas válidas. O fallback externo ocorre somente se o backend
+> estiver indisponível; ausência de resultados retorna `[]`.
 
 **Parâmetros**:
 - `UF`: Sigla do estado (2 letras maiúsculas)
 - `Cidade`: Nome da cidade (mínimo 3 caracteres)
 - `Logradouro`: Nome do logradouro (mínimo 3 caracteres)
-- `formato`: `json` ou `xml`
+- `formato`: `json`; XML continua sendo encaminhado ao ViaCEP
 
 **Exemplos**:
 
@@ -172,10 +176,10 @@ curl "http://localhost:8080/ws/SP/São%20Paulo/Paulista/json/?limit=10"
 
 **Recursos da Busca Local**:
 - ✅ Normalização automática (remove acentos)
-- ✅ Busca parcial (LIKE)
-- ✅ Índices otimizados (UF + Cidade + Logradouro)
+- ✅ Tolerância a pequenos erros de digitação
+- ✅ Ranking textual com filtro exato por UF
 - ✅ Limite configurável de resultados
-- ✅ Fallback para ViaCEP se vazio
+- ✅ Resultado vazio independente de serviço externo
 
 ### Rota Direta da Base Local
 
@@ -224,8 +228,8 @@ curl http://localhost:8080/health
 │  └─────────────────────────────────────────┘  │
 │  ┌─────────────────────────────────────────┐  │
 │  │  /ws/{UF}/{Cidade}/{Logradouro}/{fmt}/  │  │
-│  │  1. Proxy: Rust Search Server (SQLite)  │──┼──┐
-│  │  2. Fallback: ViaCEP                    │  │  │
+│  │  1. Proxy: Rust Search Server (Tantivy) │──┼──┐
+│  │  2. Fallback técnico: ViaCEP            │  │  │
 │  └─────────────────────────────────────────┘  │  │
 └───────────────┬───────────────────────────────┘  │
                 │                                   │
@@ -234,8 +238,8 @@ curl http://localhost:8080/health
         │   ViaCEP     │              │  Rust Search       │
         │   (Proxy)    │              │  Server (Port 3000)│
         └──────────────┘              │  ┌──────────────┐  │
-                                      │  │  SQLite DB   │  │
-        ┌──────────────┐              │  │  (~500MB)    │  │
+                                      │  │ Tantivy Index│  │
+        ┌──────────────┐              │  │  read-only   │  │
         │ Base Local   │              │  │  Indexed     │  │
         │ (JSON files) │              │  └──────────────┘  │
         └──────────────┘              └────────────────────┘
@@ -243,10 +247,10 @@ curl http://localhost:8080/health
 
 **Componentes**:
 - **Nginx**: Proxy reverso e servir arquivos estáticos
-- **Rust Search Server**: API de busca reversa com SQLite (assíncrono, Axum)
-- **SQLite Index**: Banco de dados com índices otimizados para busca por endereço
-- **Base Local JSON**: ~1.5M arquivos CEP individuais
-- **ViaCEP**: Fallback para CEPs novos ou não encontrados
+- **Rust Search Server**: API Axum de busca reversa
+- **Tantivy Index**: índice textual versionado, validado e aberto para leitura
+- **Base Local JSON**: arquivos individuais fornecidos pelas releases do OpenCEP
+- **ViaCEP**: fallback para CEP direto, XML e falha técnica da busca reversa
 
 ## ⚙️ Configuração
 
@@ -330,14 +334,16 @@ opencep/
 ├── Dockerfile              # Multi-stage: download + Rust build + indexação + runtime
 ├── docker-compose.yml      # 2 serviços: nginx + rust search server
 ├── default.conf.template   # Rotas e proxy; DNS renderizado no startup
-├── .devcontainer/      # Ambiente mínimo para inspecionar/testar configuração Nginx
+├── .devcontainer/          # Rust 1.89, Nginx e ferramentas de validação
 ├── build.sh               # Script helper para builds (deprecated)
 ├── build-all.sh           # 🆕 Script completo com busca reversa
 ├── cep-indexer/           # 🆕 Código Rust
-│   ├── Cargo.toml         # Dependências (axum, rusqlite, etc)
+│   ├── Cargo.toml         # Dependências (Axum, Tantivy etc.)
+│   ├── Cargo.lock         # Dependências reproduzíveis
 │   ├── src/
 │   │   ├── models.rs      # Estruturas de dados CEP
-│   │   ├── indexer.rs     # Indexador (cria SQLite)
+│   │   ├── indexer.rs     # CLI de geração do índice
+│   │   ├── lib.rs         # Indexação, busca e API
 │   │   └── server.rs      # Servidor HTTP de busca
 │   └── README.md          # Documentação específica do Rust
 ├── docs/
@@ -391,7 +397,15 @@ Ou use o script helper:
 
 ### Testes
 
-O Dev Container usa `nginx:alpine` sem Docker socket, instalação automática ou acesso à AWS. Nele, após autorização para iniciá-lo, pode-se renderizar manualmente o template com `envsubst` e validar com `nginx -t`; testes de build da imagem, DNS da rede Docker e endpoints ficam na CI, pois exigem lifecycle de contêineres. A configuração roda como root porque o Nginx precisa escrever PID/logs durante `nginx -t`; não há montagem de credenciais nem comandos de inicialização do projeto. Iniciar/reconstruir o Dev Container exige autorização separada.
+O Dev Container usa Rust 1.89 sobre Debian e inclui Nginx e ferramentas para os
+testes locais. Não monta Docker socket, credenciais ou secrets e não inicia
+serviços automaticamente.
+
+```bash
+devcontainer exec --workspace-folder . \
+  cargo test --locked --manifest-path cep-indexer/Cargo.toml \
+  --test indexer_cli --test search_api
+```
 
 ```bash
 # Testar CEP local
@@ -421,18 +435,18 @@ Este projeto é fornecido "como está", sem garantias. Use por sua conta e risco
 
 ## 🐛 Problemas Conhecidos
 
-- ~~A pesquisa por endereço sempre usa o ViaCEP (não há base local para essa funcionalidade)~~ ✅ **RESOLVIDO**: Agora usa SQLite local!
+- A base completa ainda precisa de benchmark versionado antes de publicar metas de latência e memória.
 - CEPs novos não presentes na base local serão consultados via ViaCEP
 
 ## 💡 Roadmap
 
-- [x] **Busca reversa local** (Rust + SQLite)
+- [x] **Busca reversa local** (Rust + Tantivy)
 - [ ] Cache em memória (Redis) para queries frequentes
 - [ ] Métricas e observabilidade (Prometheus)
 - [ ] Atualização automática da base de dados
 - [ ] Suporte a HTTPS
 - [x] Health check endpoint
-- [ ] Fuzzy search (Levenshtein distance)
+- [x] Fuzzy search (distância de edição por termo)
 - [ ] Autocomplete de cidades/ruas
 
 ## 📚 Documentação Adicional

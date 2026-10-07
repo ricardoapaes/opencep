@@ -45,6 +45,46 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,prefix=sha-
 
+      - name: Test Rust address index and API
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: rust-tests
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build fixture search image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: search-server-test
+          load: true
+          tags: opencep-search:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build fixture Nginx image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: nginx-server-test
+          load: true
+          tags: opencep-nginx:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Test local reverse search through Nginx
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml \
+            up -d --no-build --wait --wait-timeout 60
+          curl -fsS http://localhost:8080/ready > /tmp/opencep-ready.json
+
+          jq -e '.status == "ready" and .dataset_version == "ci-fixture" and .document_count == 3' \
+            /tmp/opencep-ready.json
+          curl -fsS 'http://localhost:8080/ws/SP/Sao%20Paulo/Paulsta/json/?limit=10' \
+            | jq -e 'any(.[]; .cep == "01310-100" and .logradouro == "Avenida Paulista")'
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml down
+
       - name: Build Docker image
         uses: docker/build-push-action@v5
         with:
@@ -202,10 +242,12 @@ jobs:
         run: |
           docker logs opencep-test || true
           docker logs opencep-dns-test || true
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml logs || true
 
       - name: Stop test container
         if: always()
         run: |
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml down || true
           docker rm -f opencep-test opencep-dns-test || true
           docker network rm opencep-dns-test || true
 
