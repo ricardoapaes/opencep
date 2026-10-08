@@ -1,0 +1,10 @@
+services:
+  cep-search:
+    image: opencep-search:test
+    build:
+      target: search-server-test
+
+  opencep-api:
+    image: opencep-nginx:test
+    build:
+      target: nginx-server-test

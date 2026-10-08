@@ -1,0 +1,7 @@
+#!/bin/sh
+
+if [ -z "${NGINX_DNS_RESOLVER:-}" ]; then
+    NGINX_DNS_RESOLVER="${NGINX_LOCAL_RESOLVERS:-1.1.1.1}"
+fi
+
+export NGINX_DNS_RESOLVER

@@ -5,25 +5,31 @@ API de consulta de CEPs brasileiros com cache local e fallback automático para 
 ## 🚀 Características
 
 - **Cache Local**: Base de dados completa de CEPs brasileiros servida localmente para máxima performance
+- **Busca Reversa Local**: Pesquisa por endereço usando índice Tantivy embutido no serviço Rust
 - **Fallback Inteligente**: Quando o CEP não está na base local, faz proxy automático para o ViaCEP
-- **Pesquisa por Endereço**: Suporta pesquisa por UF/Cidade/Logradouro (proxy para ViaCEP)
 - **100% Compatível**: Mesma API e formato de resposta do ViaCEP
+- **Busca Tolerante**: Normalização de acentos, abreviações e pequenos erros de digitação
 - **Containerizado**: Deploy fácil com Docker/Podman
-- **Leve e Rápido**: Nginx Alpine com base de dados estática
+- **Leve e Rápido**: Nginx Alpine com base de dados estática + servidor Rust otimizado
 
 ## 📋 Pré-requisitos
 
-- Docker ou Podman
-- Docker Compose
+- Docker com o plugin Compose; ou Podman com `podman compose`/`podman-compose`
+
+Os exemplos usam `docker`. Em uma instalação Podman nativa, substitua por
+`podman` quando o provider Compose estiver configurado.
 
 ## 🔧 Instalação
 
-### Usando imagem pré-construída (Recomendado)
+### Usando apenas a imagem Nginx
 
 ```bash
 # Usar imagem do GitHub Container Registry
 docker run -d -p 8080:80 ghcr.io/ricardoapaes/opencep:latest
 ```
+
+A imagem Nginx isolada atende consultas diretas por CEP. Para busca reversa local,
+use o Compose do repositório, que também constrói e inicia `cep-search`.
 
 Ou com Docker Compose:
 
@@ -119,11 +125,15 @@ curl http://localhost:8080/ws/87308084/json/
 
 **Endpoint**: `/ws/{UF}/{Cidade}/{Logradouro}/{formato}/`
 
+> **Busca Local**: usa um índice Tantivy local no serviço Rust, sem depender do
+> ViaCEP para buscas válidas. O fallback externo ocorre somente se o backend
+> estiver indisponível; ausência de resultados retorna `[]`.
+
 **Parâmetros**:
 - `UF`: Sigla do estado (2 letras maiúsculas)
 - `Cidade`: Nome da cidade (mínimo 3 caracteres)
 - `Logradouro`: Nome do logradouro (mínimo 3 caracteres)
-- `formato`: `json` ou `xml`
+- `formato`: `json`; XML continua sendo encaminhado ao ViaCEP
 
 **Exemplos**:
 
@@ -136,26 +146,53 @@ curl http://localhost:8080/ws/RS/Porto%20Alegre/Domingos%20Jose/json/
 
 # Pesquisar por "Paulista" em São Paulo/SP
 curl http://localhost:8080/ws/SP/São%20Paulo/Paulista/json/
+
+# Com limite de resultados (padrão: 50, máximo: 100)
+curl "http://localhost:8080/ws/SP/São%20Paulo/Paulista/json/?limit=10"
+
+# Filtrar o CEP pela faixa numérica descrita no complemento
+curl "http://localhost:8080/ws/PR/Campo%20Mourão/Rua%20Quinto%20Salvadori,1774/json/?limit=10"
 ```
 
-**Resposta** (retorna até 50 CEPs):
+**Resposta** (retorna até 50 CEPs por padrão):
 
 ```json
 [
   {
-    "cep": "90420-010",
-    "logradouro": "Rua Domingos José Poli",
-    "complemento": "",
-    "bairro": "Auxiliadora",
-    "localidade": "Porto Alegre",
-    "uf": "RS",
-    "ibge": "4314902",
-    "gia": "",
-    "ddd": "51",
-    "siafi": "8801"
+    "cep": "01310-100",
+    "logradouro": "Avenida Paulista",
+    "complemento": "lado ímpar",
+    "bairro": "Bela Vista",
+    "localidade": "São Paulo",
+    "uf": "SP",
+    "ibge": "3550308"
+  },
+  {
+    "cep": "01310-200",
+    "logradouro": "Avenida Paulista",
+    "complemento": "lado par",
+    "bairro": "Bela Vista",
+    "localidade": "São Paulo",
+    "uf": "SP",
+    "ibge": "3550308"
   }
 ]
 ```
+
+**Recursos da Busca Local**:
+- ✅ Normalização automática (remove acentos)
+- ✅ Tolerância a pequenos erros de digitação
+- ✅ Ranking textual com filtro exato por UF
+- ✅ Filtro opcional por número e faixa do complemento
+- ✅ Limite configurável de resultados
+- ✅ Resultado vazio independente de serviço externo
+
+O número pode ser acrescentado ao final do logradouro, depois de uma vírgula.
+Quando informado, a busca interpreta complementos como `até 1159/1160`,
+`de 1161/1162 a 1659/1660` e `de 1662 ao fim - lado par`. Limites são inclusivos
+e respeitam a paridade. Um CEP sem faixa reconhecível é usado como fallback apenas
+quando nenhuma faixa específica corresponde ao número. Buscas numeradas com mais
+de 10.000 candidatos recebem HTTP 422 e exigem um logradouro mais específico.
 
 ### Rota Direta da Base Local
 
@@ -195,34 +232,47 @@ curl http://localhost:8080/health
 └──────┬──────┘
        │
        ▼
-┌─────────────────────────────────────┐
-│          Nginx (Alpine)              │
-│  ┌────────────────────────────────┐ │
-│  │  /ws/{cep}/{formato}/          │ │
-│  │  1. Try local: /v1/{cep}.json  │ │
-│  │  2. Fallback: ViaCEP           │ │
-│  └────────────────────────────────┘ │
-│  ┌────────────────────────────────┐ │
-│  │  /ws/{UF}/{Cidade}/{Log...}/   │ │
-│  │  Proxy: ViaCEP                 │ │
-│  └────────────────────────────────┘ │
-└─────────────────────────────────────┘
-       │                    │
-       ▼                    ▼
-┌──────────────┐    ┌──────────────┐
-│ Base Local   │    │   ViaCEP     │
-│ (JSON files) │    │   (Proxy)    │
-└──────────────┘    └──────────────┘
+┌───────────────────────────────────────────────┐
+│          Nginx (Alpine) - Port 80/8080         │
+│  ┌─────────────────────────────────────────┐  │
+│  │  /ws/{cep}/{formato}/                   │  │
+│  │  1. Try local: /v1/{cep}.json           │  │
+│  │  2. Fallback: ViaCEP                    │  │
+│  └─────────────────────────────────────────┘  │
+│  ┌─────────────────────────────────────────┐  │
+│  │  /ws/{UF}/{Cidade}/{Logradouro}/{fmt}/  │  │
+│  │  1. Proxy: Rust Search Server (Tantivy) │──┼──┐
+│  │  2. Fallback técnico: ViaCEP            │  │  │
+│  └─────────────────────────────────────────┘  │  │
+└───────────────┬───────────────────────────────┘  │
+                │                                   │
+                ▼                                   ▼
+        ┌──────────────┐              ┌────────────────────┐
+        │   ViaCEP     │              │  Rust Search       │
+        │   (Proxy)    │              │  Server (Port 3000)│
+        └──────────────┘              │  ┌──────────────┐  │
+                                      │  │ Tantivy Index│  │
+        ┌──────────────┐              │  │  read-only   │  │
+        │ Base Local   │              │  │  Indexed     │  │
+        │ (JSON files) │              │  └──────────────┘  │
+        └──────────────┘              └────────────────────┘
 ```
+
+**Componentes**:
+- **Nginx**: Proxy reverso e servir arquivos estáticos
+- **Rust Search Server**: API Axum de busca reversa
+- **Tantivy Index**: índice textual versionado, validado e aberto para leitura
+- **Base Local JSON**: arquivos individuais fornecidos pelas releases do OpenCEP
+- **ViaCEP**: fallback para CEP direto, XML e falha técnica da busca reversa
 
 ## ⚙️ Configuração
 
 ### Variáveis de Ambiente
 
 - `OPENCEP_VERSION`: Versão da base de dados OpenCEP (padrão: `2.0.1`)
-- `NGINX_DNS_RESOLVER`: endereço do servidor DNS usado pelo Nginx para resolver o ViaCEP. A imagem usa `1.1.1.1` por padrão (requer saída DNS para esse endereço); o Compose usa `127.0.0.11`, DNS interno da rede Docker. Em ECS EC2, a task define `169.254.169.253` via variável `nginx_dns_resolver` na IaC. Configure um endereço alcançável pela sua hospedagem antes de publicar a imagem em outra rede. Não configure uma lista mista de servidores com alcançabilidade diferente.
+- `NGINX_DNS_RESOLVER`: endereço do servidor DNS usado pelo Nginx. A imagem isolada usa `1.1.1.1`; o Compose detecta automaticamente os resolvers de Docker ou Podman pelo `/etc/resolv.conf`. Em ECS EC2, a task pode definir `169.254.169.253` pela variável `nginx_dns_resolver` da IaC.
 
-O arquivo `default.conf.template` é renderizado pelo entrypoint oficial da imagem Nginx em `/etc/nginx/conf.d/default.conf` a cada inicialização. O filtro `NGINX_ENVSUBST_FILTER=^NGINX_DNS_RESOLVER$` substitui **somente** o resolver; variáveis de rota do Nginx como `$request_uri`, `$viacep_host` e capturas continuam intactas. Não monte um arquivo diretamente sobre a configuração gerada.
+O arquivo `default.conf.template` é renderizado pelo entrypoint oficial da imagem Nginx em `/etc/nginx/conf.d/default.conf` a cada inicialização. O script `16-opencep-resolver.envsh` usa o resolver explícito ou o detectado pelo entrypoint. O filtro de substituição preserva variáveis de rota do Nginx como `$request_uri`, `$viacep_host` e capturas.
 
 Para usar outro DNS, passe `-e NGINX_DNS_RESOLVER=<IP_DNS>` no `docker run`, defina `NGINX_DNS_RESOLVER` no ambiente do Compose ou altere a variável de entrada da IaC para ECS. O valor deve ser um endereço DNS aceito pela diretiva `resolver` do Nginx e acessível do contêiner (não um IP de DNS exclusivo da AWS fora dela).
 
@@ -294,13 +344,26 @@ docker run -d -p 8080:80 ghcr.io/ricardoapaes/opencep:pr-10
 
 ```
 opencep/
-├── Dockerfile           # Multi-stage build: download base + nginx
-├── docker-compose.yml   # Orquestração do container
-├── default.conf.template # Rotas e proxy; DNS renderizado no startup
-├── .devcontainer/      # Ambiente mínimo para inspecionar/testar configuração Nginx
-├── build.sh            # Script helper para builds otimizados
-├── .env.example        # Exemplo de variáveis de ambiente
-└── README.md           # Este arquivo
+├── Dockerfile              # Multi-stage: download + Rust build + indexação + runtime
+├── docker-compose.yml      # 2 serviços: nginx + rust search server
+├── default.conf.template   # Rotas e proxy; DNS renderizado no startup
+├── .devcontainer/          # Rust 1.89, Nginx e ferramentas de validação
+├── build.sh               # Script helper para builds (deprecated)
+├── build-all.sh           # 🆕 Script completo com busca reversa
+├── cep-indexer/           # 🆕 Código Rust
+│   ├── Cargo.toml         # Dependências (Axum, Tantivy etc.)
+│   ├── Cargo.lock         # Dependências reproduzíveis
+│   ├── src/
+│   │   ├── models.rs      # Estruturas de dados CEP
+│   │   ├── indexer.rs     # CLI de geração do índice
+│   │   ├── lib.rs         # Indexação, busca e API
+│   │   └── server.rs      # Servidor HTTP de busca
+│   └── README.md          # Documentação específica do Rust
+├── docs/
+│   ├── reverse-search.md  # 🆕 Documentação detalhada busca reversa
+│   ├── aws-ecs-deploy.md  # Deploy AWS ECS
+│   └── github-actions-ci.md
+└── README.md              # Este arquivo
 ```
 
 ### Rebuild Completo
@@ -347,7 +410,44 @@ Ou use o script helper:
 
 ### Testes
 
-O Dev Container usa `nginx:alpine` sem Docker socket, instalação automática ou acesso à AWS. Nele, após autorização para iniciá-lo, pode-se renderizar manualmente o template com `envsubst` e validar com `nginx -t`; testes de build da imagem, DNS da rede Docker e endpoints ficam na CI, pois exigem lifecycle de contêineres. A configuração roda como root porque o Nginx precisa escrever PID/logs durante `nginx -t`; não há montagem de credenciais nem comandos de inicialização do projeto. Iniciar/reconstruir o Dev Container exige autorização separada.
+O Dev Container usa Rust 1.89 sobre Debian e inclui Nginx e ferramentas para os
+testes locais. Não monta Docker socket, credenciais ou secrets e não inicia
+serviços automaticamente.
+
+```bash
+devcontainer exec --workspace-folder . \
+  cargo test --locked --manifest-path cep-indexer/Cargo.toml \
+  --test indexer_cli --test search_api
+```
+
+Para testar rapidamente a integração Docker sem baixar a base completa:
+
+```bash
+docker build --target search-server-test -t opencep-search:test .
+docker build --target nginx-server-test -t opencep-nginx:test .
+
+docker compose -f docker-compose.yml -f docker-compose.ci.yml \
+  up -d --no-build --wait --wait-timeout 60
+
+curl -fsS http://localhost:8080/ready
+curl -fsS \
+  'http://localhost:8080/ws/SP/Sao%20Paulo/Paulsta/json/?limit=10'
+
+docker compose -f docker-compose.yml -f docker-compose.ci.yml down
+```
+
+Esse fluxo usa arquivos JSON de fixture, não acessa o ViaCEP e valida a
+comunicação Nginx → Rust → índice Tantivy. Para testar a base completa, execute
+`docker compose up -d --build --wait --wait-timeout 300`; o primeiro build baixa
+e indexa a release configurada em `OPENCEP_VERSION`.
+
+Se o Compose não ficar saudável, execute:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.ci.yml ps -a
+docker compose -f docker-compose.yml -f docker-compose.ci.yml \
+  logs --no-color cep-search opencep-api
+```
 
 ```bash
 # Testar CEP local
@@ -377,16 +477,26 @@ Este projeto é fornecido "como está", sem garantias. Use por sua conta e risco
 
 ## 🐛 Problemas Conhecidos
 
-- A pesquisa por endereço sempre usa o ViaCEP (não há base local para essa funcionalidade)
+- A base completa ainda precisa de benchmark versionado antes de publicar metas de latência e memória.
 - CEPs novos não presentes na base local serão consultados via ViaCEP
 
 ## 💡 Roadmap
 
+- [x] **Busca reversa local** (Rust + Tantivy)
+- [ ] Cache em memória (Redis) para queries frequentes
+- [ ] Métricas e observabilidade (Prometheus)
 - [ ] Atualização automática da base de dados
 - [ ] Suporte a HTTPS
-- [ ] Métricas e monitoramento
-- [ ] Cache de respostas do ViaCEP
 - [x] Health check endpoint
+- [x] Fuzzy search (distância de edição por termo)
+- [ ] Autocomplete de cidades/ruas
+
+## 📚 Documentação Adicional
+
+- [📖 Busca Reversa - Documentação Técnica](docs/reverse-search.md)
+- [🚀 Deploy AWS ECS](docs/aws-ecs-deploy.md)
+- [🔧 GitHub Actions CI/CD](docs/github-actions-ci.md)
+- [⚙️ Código Rust - Indexador](cep-indexer/README.md)
 
 ## 📞 Contato
 

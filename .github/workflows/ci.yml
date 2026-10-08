@@ -45,6 +45,60 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,prefix=sha-
 
+      - name: Test Rust address index and API
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: rust-tests
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build fixture search image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: search-server-test
+          load: true
+          tags: opencep-search:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build fixture Nginx image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: nginx-server-test
+          load: true
+          tags: opencep-nginx:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Test local reverse search through Nginx
+        run: |
+          compose_files="-f docker-compose.yml -f docker-compose.ci.yml"
+          cleanup() {
+            docker compose $compose_files down --remove-orphans
+          }
+          trap cleanup EXIT
+
+          if ! docker compose $compose_files up -d --no-build --wait --wait-timeout 60; then
+            docker compose $compose_files ps -a || true
+            docker compose $compose_files logs --no-color || true
+            container_id="$(docker compose $compose_files ps -q cep-search)"
+            if [ -n "$container_id" ]; then
+              docker inspect --format='{{json .State.Health}}' "$container_id" || true
+            fi
+            exit 1
+          fi
+          curl -fsS http://localhost:8080/ready > /tmp/opencep-ready.json
+
+          jq -e '.status == "ready" and .dataset_version == "ci-fixture" and .document_count == 9' \
+            /tmp/opencep-ready.json
+          curl -fsS 'http://localhost:8080/ws/SP/Sao%20Paulo/Paulsta/json/?limit=10' \
+            | jq -e 'any(.[]; .cep == "01310-100" and .logradouro == "Avenida Paulista")'
+          curl -fsS 'http://localhost:8080/ws/PR/Campo%20Mour%C3%A3o/Rua%20Quinto%20Salvadori,1774/json/?limit=10' \
+            | jq -e 'length == 1 and .[0].cep == "87308-084"'
+
       - name: Build Docker image
         uses: docker/build-push-action@v5
         with:
@@ -202,10 +256,12 @@ jobs:
         run: |
           docker logs opencep-test || true
           docker logs opencep-dns-test || true
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml logs || true
 
       - name: Stop test container
         if: always()
         run: |
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml down || true
           docker rm -f opencep-test opencep-dns-test || true
           docker network rm opencep-dns-test || true
 

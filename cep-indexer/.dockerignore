@@ -1,0 +1,19 @@
+# Rust
+target/
+**/*.rs.bk
+
+# Database gerado
+*.db
+*.db-shm
+*.db-wal
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

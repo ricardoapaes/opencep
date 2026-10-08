@@ -1,9 +1,33 @@
 services:
+  # Servidor de busca reversa (Rust + Tantivy)
+  cep-search:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: search-server
+      args:
+        - OPENCEP_VERSION=${OPENCEP_VERSION:-2.0.1}
+    expose:
+      - "3000"
+    environment:
+      - INDEX_PATH=/data/cep_index
+      - PORT=3000
+      - SEARCH_CONCURRENCY=${SEARCH_CONCURRENCY:-16}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:3000/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  # API principal (Nginx + arquivos estáticos)
   opencep-api:
     image: ghcr.io/ricardoapaes/opencep:latest
     build:
       context: .
       dockerfile: Dockerfile
+      target: nginx-server
       args:
         - OPENCEP_VERSION=${OPENCEP_VERSION:-2.0.1}
       x-bake:
@@ -12,7 +36,11 @@ services:
         cache-to:
           - type=local,dest=/tmp/.buildx-cache
     environment:
-      NGINX_DNS_RESOLVER: ${NGINX_DNS_RESOLVER:-127.0.0.11}
+      NGINX_ENTRYPOINT_LOCAL_RESOLVERS: "1"
+      NGINX_DNS_RESOLVER: ${NGINX_DNS_RESOLVER:-}
     ports:
       - "8080:80"
-    restart: always
+    depends_on:
+      cep-search:
+        condition: service_healthy
+    restart: unless-stopped

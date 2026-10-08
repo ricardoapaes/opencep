@@ -5,6 +5,7 @@ Dockerfile
 
 # Base de dados (baixada durante build)
 v1/
+cep-indexer/target/
 
 # Git
 .git
