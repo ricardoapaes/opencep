@@ -15,10 +15,11 @@ services:
       - SEARCH_CONCURRENCY=${SEARCH_CONCURRENCY:-16}
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/ready"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:3000/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
 
   # API principal (Nginx + arquivos estáticos)
   opencep-api:
@@ -35,7 +36,8 @@ services:
         cache-to:
           - type=local,dest=/tmp/.buildx-cache
     environment:
-      NGINX_DNS_RESOLVER: ${NGINX_DNS_RESOLVER:-127.0.0.11}
+      NGINX_ENTRYPOINT_LOCAL_RESOLVERS: "1"
+      NGINX_DNS_RESOLVER: ${NGINX_DNS_RESOLVER:-}
     ports:
       - "8080:80"
     depends_on:

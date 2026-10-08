@@ -98,8 +98,9 @@ O Compose inicia dois serviços na mesma rede:
 - `opencep-api`: Nginx público na porta 8080;
 - `cep-search`: backend interno, sem porta publicada no host.
 
-O Nginx aguarda o `/ready` do backend. No Compose, `NGINX_DNS_RESOLVER` usa o DNS
-interno `127.0.0.11`.
+O Nginx aguarda o `/ready` do backend. No Compose, o resolver interno é detectado
+automaticamente a partir do `/etc/resolv.conf`, funcionando tanto em Docker
+quanto em Podman.
 
 ```bash
 docker compose build
@@ -107,6 +108,11 @@ docker compose up -d
 curl http://localhost:8080/ready
 curl 'http://localhost:8080/ws/SP/Sao%20Paulo/Paulsta/json/?limit=10'
 ```
+
+Para um teste rápido com fixtures e sem download da base completa, use os targets
+`search-server-test` e `nginx-server-test` conforme documentado no README. O
+healthcheck usa `127.0.0.1` intencionalmente: no Alpine, `localhost` pode resolver
+primeiro para `::1`, enquanto o servidor está vinculado a IPv4.
 
 ## Verificação
 

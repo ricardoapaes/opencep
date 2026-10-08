@@ -1,7 +1,7 @@
 # ============================================================
 # Stage 1: Baixar base OpenCEP
 # ============================================================
-FROM alpine:3.22 AS downloader
+FROM docker.io/library/alpine:3.22 AS downloader
 ARG OPENCEP_VERSION=2.0.1
 RUN apk update && apk add curl unzip
 
@@ -24,7 +24,7 @@ RUN --mount=type=cache,target=/cache \
 # ============================================================
 # Stage 2: Compilar binários Rust
 # ============================================================
-FROM rust:1.89-alpine AS rust-builder
+FROM docker.io/library/rust:1.89-alpine AS rust-builder
 RUN apk add --no-cache musl-dev
 
 WORKDIR /build
@@ -39,7 +39,7 @@ RUN cargo test --locked --lib --tests
 # ============================================================
 # Stage 3: Indexar CEPs
 # ============================================================
-FROM alpine:3.22 AS indexer-base
+FROM docker.io/library/alpine:3.22 AS indexer-base
 RUN apk add --no-cache libgcc
 
 COPY --from=rust-builder /build/target/release/indexer /usr/local/bin/indexer
@@ -58,7 +58,7 @@ RUN JSON_DIR=/data/v1 INDEX_PATH=/data/cep_index OPENCEP_VERSION=${OPENCEP_VERSI
 # ============================================================
 # Stage 4: Imagem runtime do servidor de busca
 # ============================================================
-FROM alpine:3.22 AS search-runtime
+FROM docker.io/library/alpine:3.22 AS search-runtime
 RUN apk add --no-cache libgcc
 
 COPY --from=rust-builder /build/target/release/search-server /usr/local/bin/search-server
@@ -76,13 +76,14 @@ COPY --from=indexer /data/cep_index /data/cep_index
 # ============================================================
 # Stage 5: Nginx (servidor principal)
 # ============================================================
-FROM nginx:alpine AS nginx-base
+FROM docker.io/library/nginx:alpine AS nginx-base
 RUN rm /etc/nginx/conf.d/default.conf
 
 ENV NGINX_DNS_RESOLVER=1.1.1.1 \
     NGINX_ENVSUBST_FILTER=^NGINX_DNS_RESOLVER$
 
 COPY default.conf.template /etc/nginx/templates/default.conf.template
+COPY --chmod=755 16-opencep-resolver.envsh /docker-entrypoint.d/16-opencep-resolver.envsh
 COPY index.html /usr/share/nginx/html/index.html
 EXPOSE 80
 

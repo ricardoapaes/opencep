@@ -10,13 +10,24 @@ Pipeline completo que executa em:
 
 ### Etapas do Pipeline
 
-#### 1. Build da Imagem Docker
-- Usa BuildX para build otimizado
-- Cache do GitHub Actions para builds mais rápidos
+#### 1. Build e testes Rust
+- Compila com o `Cargo.lock` versionado
+- Executa testes unitários, da CLI e da API HTTP
+- Gera imagens de fixture para o servidor Rust e para o Nginx
 
 #### 2. Testes Automatizados
 
-Executa 6 testes principais:
+O gate determinístico de busca reversa:
+
+1. Inicia os dois serviços pelo Docker Compose em uma rede sem saída externa.
+2. Aguarda o healthcheck do `cep-search` e consulta `/ready` pelo Nginx.
+3. Confirma versão e contagem do índice de fixtures.
+4. Pesquisa `Paulsta` e exige o resultado local da Avenida Paulista.
+
+Assim, esse teste não pode passar usando o fallback ViaCEP. Em caso de falha, o
+workflow imprime `compose ps`, logs dos serviços e o histórico do healthcheck.
+
+Depois, a imagem Nginx de produção executa os testes de configuração e API:
 
 1. **Health Check** (`/health`)
    - Verifica se retorna `{"status":"ok"}`
@@ -28,8 +39,7 @@ Executa 6 testes principais:
    - Verifica se CEP inexistente retorna `{"erro":"true"}`
 
 4. **Pesquisa por Endereço** (`/ws/RS/Porto Alegre/Domingos/json`)
-   - Testa proxy para ViaCEP
-   - Valida se retorna array JSON
+   - Valida o roteamento/fallback da imagem Nginx isolada
 
 5. **Acesso Direto v1** (`/v1/01001000.json`)
    - Verifica acesso direto aos arquivos JSON
@@ -52,25 +62,18 @@ Executa 6 testes principais:
 ### 1. Testar localmente antes do push
 
 ```bash
-# Executar os mesmos testes do CI
-docker build -t opencep-api:test .
-docker run -d --name opencep-test -p 8080:80 opencep-api:test
-sleep 5
+# Imagens pequenas com a base de fixtures
+docker build --target search-server-test -t opencep-search:test .
+docker build --target nginx-server-test -t opencep-nginx:test .
 
-# Health check
-curl -s http://localhost:8080/health | grep '"status":"ok"' && echo "✅ PASS" || echo "❌ FAIL"
+docker compose -f docker-compose.yml -f docker-compose.ci.yml \
+  up -d --no-build --wait --wait-timeout 60
 
-# CEP local
-curl -s http://localhost:8080/ws/01001000/json/ | grep '"cep"' && echo "✅ PASS" || echo "❌ FAIL"
+curl -fsS http://localhost:8080/ready
+curl -fsS \
+  'http://localhost:8080/ws/SP/Sao%20Paulo/Paulsta/json/?limit=10'
 
-# Fallback ViaCEP
-curl -s http://localhost:8080/ws/99999999/json/ | grep '"erro"' && echo "✅ PASS" || echo "❌ FAIL"
-
-# Pesquisa por endereço
-curl -s http://localhost:8080/ws/RS/Porto%20Alegre/Domingos/json | grep -E '\[|"cep"' && echo "✅ PASS" || echo "❌ FAIL"
-
-# Cleanup
-docker rm -f opencep-test
+docker compose -f docker-compose.yml -f docker-compose.ci.yml down
 ```
 
 ### 2. Fazer push e aguardar CI

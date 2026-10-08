@@ -75,15 +75,23 @@ jobs:
 
       - name: Test local reverse search through Nginx
         run: |
-          docker compose -f docker-compose.yml -f docker-compose.ci.yml \
-            up -d --no-build --wait --wait-timeout 60
+          compose_files="-f docker-compose.yml -f docker-compose.ci.yml"
+          if ! docker compose $compose_files up -d --no-build --wait --wait-timeout 60; then
+            docker compose $compose_files ps -a || true
+            docker compose $compose_files logs --no-color || true
+            container_id="$(docker compose $compose_files ps -q cep-search)"
+            if [ -n "$container_id" ]; then
+              docker inspect --format='{{json .State.Health}}' "$container_id" || true
+            fi
+            exit 1
+          fi
           curl -fsS http://localhost:8080/ready > /tmp/opencep-ready.json
 
           jq -e '.status == "ready" and .dataset_version == "ci-fixture" and .document_count == 3' \
             /tmp/opencep-ready.json
           curl -fsS 'http://localhost:8080/ws/SP/Sao%20Paulo/Paulsta/json/?limit=10' \
             | jq -e 'any(.[]; .cep == "01310-100" and .logradouro == "Avenida Paulista")'
-          docker compose -f docker-compose.yml -f docker-compose.ci.yml down
+          docker compose $compose_files down
 
       - name: Build Docker image
         uses: docker/build-push-action@v5

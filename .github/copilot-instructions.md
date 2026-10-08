@@ -59,7 +59,8 @@ INDEX_PATH=/tmp/cep_index PORT=3000 \
   against the full versioned dataset.
 - Keep the Rust service internal to the Compose network; only Nginx exposes a
   host port.
-- `NGINX_DNS_RESOLVER` defaults to Docker DNS (`127.0.0.11`) in Compose.
+- Compose detects the internal Docker or Podman resolver from `/etc/resolv.conf`;
+  `NGINX_DNS_RESOLVER` remains available as an explicit override.
 - The `v1/` dataset and generated index are build artifacts and are not committed.
 
 ## External dependencies

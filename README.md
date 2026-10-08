@@ -14,8 +14,10 @@ API de consulta de CEPs brasileiros com cache local e fallback automático para 
 
 ## 📋 Pré-requisitos
 
-- Docker ou Podman
-- Docker Compose
+- Docker com o plugin Compose; ou Podman com `podman compose`/`podman-compose`
+
+Os exemplos usam `docker`. Em uma instalação Podman nativa, substitua por
+`podman` quando o provider Compose estiver configurado.
 
 ## 🔧 Instalação
 
@@ -257,9 +259,9 @@ curl http://localhost:8080/health
 ### Variáveis de Ambiente
 
 - `OPENCEP_VERSION`: Versão da base de dados OpenCEP (padrão: `2.0.1`)
-- `NGINX_DNS_RESOLVER`: endereço do servidor DNS usado pelo Nginx para resolver o ViaCEP. A imagem usa `1.1.1.1` por padrão (requer saída DNS para esse endereço); o Compose usa `127.0.0.11`, DNS interno da rede Docker. Em ECS EC2, a task define `169.254.169.253` via variável `nginx_dns_resolver` na IaC. Configure um endereço alcançável pela sua hospedagem antes de publicar a imagem em outra rede. Não configure uma lista mista de servidores com alcançabilidade diferente.
+- `NGINX_DNS_RESOLVER`: endereço do servidor DNS usado pelo Nginx. A imagem isolada usa `1.1.1.1`; o Compose detecta automaticamente os resolvers de Docker ou Podman pelo `/etc/resolv.conf`. Em ECS EC2, a task pode definir `169.254.169.253` pela variável `nginx_dns_resolver` da IaC.
 
-O arquivo `default.conf.template` é renderizado pelo entrypoint oficial da imagem Nginx em `/etc/nginx/conf.d/default.conf` a cada inicialização. O filtro `NGINX_ENVSUBST_FILTER=^NGINX_DNS_RESOLVER$` substitui **somente** o resolver; variáveis de rota do Nginx como `$request_uri`, `$viacep_host` e capturas continuam intactas. Não monte um arquivo diretamente sobre a configuração gerada.
+O arquivo `default.conf.template` é renderizado pelo entrypoint oficial da imagem Nginx em `/etc/nginx/conf.d/default.conf` a cada inicialização. O script `16-opencep-resolver.envsh` usa o resolver explícito ou o detectado pelo entrypoint. O filtro de substituição preserva variáveis de rota do Nginx como `$request_uri`, `$viacep_host` e capturas.
 
 Para usar outro DNS, passe `-e NGINX_DNS_RESOLVER=<IP_DNS>` no `docker run`, defina `NGINX_DNS_RESOLVER` no ambiente do Compose ou altere a variável de entrada da IaC para ECS. O valor deve ser um endereço DNS aceito pela diretiva `resolver` do Nginx e acessível do contêiner (não um IP de DNS exclusivo da AWS fora dela).
 
@@ -405,6 +407,35 @@ serviços automaticamente.
 devcontainer exec --workspace-folder . \
   cargo test --locked --manifest-path cep-indexer/Cargo.toml \
   --test indexer_cli --test search_api
+```
+
+Para testar rapidamente a integração Docker sem baixar a base completa:
+
+```bash
+docker build --target search-server-test -t opencep-search:test .
+docker build --target nginx-server-test -t opencep-nginx:test .
+
+docker compose -f docker-compose.yml -f docker-compose.ci.yml \
+  up -d --no-build --wait --wait-timeout 60
+
+curl -fsS http://localhost:8080/ready
+curl -fsS \
+  'http://localhost:8080/ws/SP/Sao%20Paulo/Paulsta/json/?limit=10'
+
+docker compose -f docker-compose.yml -f docker-compose.ci.yml down
+```
+
+Esse fluxo usa quatro arquivos JSON de fixture, não acessa o ViaCEP e valida a
+comunicação Nginx → Rust → índice Tantivy. Para testar a base completa, execute
+`docker compose up -d --build --wait --wait-timeout 300`; o primeiro build baixa
+e indexa a release configurada em `OPENCEP_VERSION`.
+
+Se o Compose não ficar saudável, execute:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.ci.yml ps -a
+docker compose -f docker-compose.yml -f docker-compose.ci.yml \
+  logs --no-color cep-search opencep-api
 ```
 
 ```bash
