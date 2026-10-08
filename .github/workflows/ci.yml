@@ -76,6 +76,11 @@ jobs:
       - name: Test local reverse search through Nginx
         run: |
           compose_files="-f docker-compose.yml -f docker-compose.ci.yml"
+          cleanup() {
+            docker compose $compose_files down --remove-orphans
+          }
+          trap cleanup EXIT
+
           if ! docker compose $compose_files up -d --no-build --wait --wait-timeout 60; then
             docker compose $compose_files ps -a || true
             docker compose $compose_files logs --no-color || true
@@ -93,7 +98,6 @@ jobs:
             | jq -e 'any(.[]; .cep == "01310-100" and .logradouro == "Avenida Paulista")'
           curl -fsS 'http://localhost:8080/ws/PR/Campo%20Mour%C3%A3o/Rua%20Quinto%20Salvadori,1774/json/?limit=10' \
             | jq -e 'length == 1 and .[0].cep == "87308-084"'
-          docker compose $compose_files down
 
       - name: Build Docker image
         uses: docker/build-push-action@v5
