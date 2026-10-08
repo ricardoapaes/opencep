@@ -56,9 +56,33 @@ GET /ws/{UF}/{Cidade}/{Logradouro}/json?limit=10
 - limite padrão: 50;
 - limite máximo: 100;
 - parâmetros inválidos: HTTP 400;
+- busca numerada com mais de 10.000 candidatos: HTTP 422;
 - falha interna: HTTP 500;
 - capacidade de busca ocupada: HTTP 429;
 - nenhum resultado: HTTP 200 com `[]`.
+
+### Filtro por número
+
+Opcionalmente, o número pode ser informado após uma vírgula no logradouro:
+
+```text
+GET /ws/PR/Campo%20Mourão/Rua%20Quinto%20Salvadori,1774/json/
+```
+
+A busca textual é executada com `Rua Quinto Salvadori`; em seguida, antes do
+`limit`, os resultados são filtrados pelas faixas descritas no complemento:
+
+- `até N` ou `até ÍMPAR/PAR`;
+- `de N a N` ou `de ÍMPAR/PAR a ÍMPAR/PAR`;
+- `de N ao fim`;
+- `de N ao fim - lado ímpar/par`;
+- `lado ímpar/par`.
+
+Os limites são inclusivos. Registros sem faixa reconhecível funcionam como
+fallback somente quando nenhuma faixa específica corresponde ao número. Se o
+texto da busca numerada corresponder a mais de 10.000 endereços, a API responde
+com HTTP 422 para que o logradouro seja refinado, em vez de processar uma busca
+sem limite previsível de recursos.
 
 `/health` confirma que o processo está vivo. `/ready` só existe após o índice ter
 sido aberto e informa versão do dataset, schema e quantidade de documentos.

@@ -149,6 +149,9 @@ curl http://localhost:8080/ws/SP/São%20Paulo/Paulista/json/
 
 # Com limite de resultados (padrão: 50, máximo: 100)
 curl "http://localhost:8080/ws/SP/São%20Paulo/Paulista/json/?limit=10"
+
+# Filtrar o CEP pela faixa numérica descrita no complemento
+curl "http://localhost:8080/ws/PR/Campo%20Mourão/Rua%20Quinto%20Salvadori,1774/json/?limit=10"
 ```
 
 **Resposta** (retorna até 50 CEPs por padrão):
@@ -180,8 +183,16 @@ curl "http://localhost:8080/ws/SP/São%20Paulo/Paulista/json/?limit=10"
 - ✅ Normalização automática (remove acentos)
 - ✅ Tolerância a pequenos erros de digitação
 - ✅ Ranking textual com filtro exato por UF
+- ✅ Filtro opcional por número e faixa do complemento
 - ✅ Limite configurável de resultados
 - ✅ Resultado vazio independente de serviço externo
+
+O número pode ser acrescentado ao final do logradouro, depois de uma vírgula.
+Quando informado, a busca interpreta complementos como `até 1159/1160`,
+`de 1161/1162 a 1659/1660` e `de 1662 ao fim - lado par`. Limites são inclusivos
+e respeitam a paridade. Um CEP sem faixa reconhecível é usado como fallback apenas
+quando nenhuma faixa específica corresponde ao número. Buscas numeradas com mais
+de 10.000 candidatos recebem HTTP 422 e exigem um logradouro mais específico.
 
 ### Rota Direta da Base Local
 
@@ -425,7 +436,7 @@ curl -fsS \
 docker compose -f docker-compose.yml -f docker-compose.ci.yml down
 ```
 
-Esse fluxo usa quatro arquivos JSON de fixture, não acessa o ViaCEP e valida a
+Esse fluxo usa arquivos JSON de fixture, não acessa o ViaCEP e valida a
 comunicação Nginx → Rust → índice Tantivy. Para testar a base completa, execute
 `docker compose up -d --build --wait --wait-timeout 300`; o primeiro build baixa
 e indexa a release configurada em `OPENCEP_VERSION`.

@@ -46,6 +46,7 @@ COPY --from=rust-builder /build/target/release/indexer /usr/local/bin/indexer
 
 FROM indexer-base AS fixture-indexer
 COPY cep-indexer/tests/fixtures /data/v1
+COPY cep-indexer/tests/number_fixtures /data/v1/number_ranges
 RUN JSON_DIR=/data/v1 INDEX_PATH=/data/cep_index OPENCEP_VERSION=ci-fixture indexer
 
 FROM indexer-base AS indexer

@@ -60,6 +60,19 @@ caracteres depois da normalização. O limite padrão é 50 e o máximo é 100.
 Resultado inexistente é representado por `200 []` e não depende de serviço
 externo.
 
+O segmento de logradouro também aceita um número depois de vírgula:
+
+```text
+GET /ws/PR/Campo%20Mourão/Rua%20Quinto%20Salvadori,1774/json/
+```
+
+O número é removido antes da busca textual e aplicado aos candidatos conforme a
+faixa presente em `complemento`. São aceitos limites inferiores/superiores,
+faixas abertas com `ao fim`, pares ímpar/par separados por `/` e indicação de
+`lado ímpar` ou `lado par`. Para proteger o serviço, uma busca numerada que
+corresponda a mais de 10.000 endereços recebe HTTP 422 e deve ser refinada com um
+logradouro mais específico.
+
 ## Testes
 
 No Dev Container do projeto:

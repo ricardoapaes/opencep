@@ -1,6 +1,8 @@
+mod address_number;
 pub mod models;
 mod normalization;
 
+use address_number::{matches_complement, split_street_and_number, NumberMatch};
 use anyhow::{bail, Context, Result};
 use axum::{
     extract::{Path as AxumPath, Query, State},
@@ -14,13 +16,15 @@ use normalization::{normalize_street, normalize_text};
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::Ordering,
+    error::Error,
+    fmt::{Display, Formatter},
     fs,
     path::{Path, PathBuf},
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
 use tantivy::{
-    collector::TopDocs,
+    collector::{Count, TopDocs},
     doc,
     query::{BooleanQuery, BoostQuery, FuzzyTermQuery, Occur, Query as TantivyQuery, TermQuery},
     schema::{
@@ -37,6 +41,24 @@ use walkdir::WalkDir;
 const SCHEMA_VERSION: u32 = 1;
 const TOKENIZER_NAME: &str = "opencep";
 const INDEX_METADATA_FILE: &str = "opencep-meta.json";
+const MAX_NUMBER_SEARCH_CANDIDATES: usize = 10_000;
+
+#[derive(Debug)]
+struct NumberSearchTooBroad {
+    candidate_count: usize,
+}
+
+impl Display for NumberSearchTooBroad {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "number search matched {} addresses; provide a more specific street",
+            self.candidate_count
+        )
+    }
+}
+
+impl Error for NumberSearchTooBroad {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IndexMetadata {
@@ -291,6 +313,17 @@ impl SearchEngine {
         street: &str,
         limit: usize,
     ) -> Result<Vec<SearchResult>> {
+        self.search_with_number(uf, locality, street, None, limit)
+    }
+
+    pub fn search_with_number(
+        &self,
+        uf: &str,
+        locality: &str,
+        street: &str,
+        number: Option<u64>,
+        limit: usize,
+    ) -> Result<Vec<SearchResult>> {
         validate_search(uf, locality, street)?;
         let normalized_locality = normalize_text(locality);
         let normalized_street = normalize_street(street);
@@ -312,18 +345,45 @@ impl SearchEngine {
             ),
         ]);
         let searcher = self.reader.searcher();
-        let candidate_limit = limit.clamp(1, 100).saturating_mul(4).min(400);
-        let top_documents = searcher.search(&query, &TopDocs::with_limit(candidate_limit))?;
-        let mut results = Vec::with_capacity(top_documents.len());
+        let result_capacity = limit.clamp(1, 100).saturating_mul(4).min(400);
+        let mut results = if let Some(number) = number {
+            let candidate_count = searcher.search(&query, &Count)?;
+            if candidate_count > MAX_NUMBER_SEARCH_CANDIDATES {
+                return Err(NumberSearchTooBroad { candidate_count }.into());
+            }
+            let top_documents =
+                searcher.search(&query, &TopDocs::with_limit(candidate_count.max(1)))?;
+            let mut constrained = Vec::new();
+            let mut unrestricted = Vec::new();
 
-        for (score, address) in top_documents {
-            let document: TantivyDocument = searcher.doc(address)?;
-            let record = document
-                .get_first(self.fields.record)
-                .and_then(|value| value.as_str())
-                .context("indexed document is missing its stored record")?;
-            results.push((score, serde_json::from_str::<SearchResult>(record)?));
-        }
+            for (score, address) in top_documents {
+                let result = self.read_search_result(&searcher, address)?;
+                match matches_complement(&result.complemento, number) {
+                    NumberMatch::ConstrainedMatch if constrained.len() < result_capacity => {
+                        constrained.push((score, result));
+                    }
+                    NumberMatch::Unrestricted if unrestricted.len() < result_capacity => {
+                        unrestricted.push((score, result));
+                    }
+                    NumberMatch::ConstrainedMatch
+                    | NumberMatch::ConstrainedMiss
+                    | NumberMatch::Unrestricted => {}
+                }
+            }
+
+            if constrained.is_empty() {
+                unrestricted
+            } else {
+                constrained
+            }
+        } else {
+            let top_documents = searcher.search(&query, &TopDocs::with_limit(result_capacity))?;
+            let mut results = Vec::with_capacity(top_documents.len());
+            for (score, address) in top_documents {
+                results.push((score, self.read_search_result(&searcher, address)?));
+            }
+            results
+        };
 
         results.sort_by(|(left_score, left), (right_score, right)| {
             right_score
@@ -335,6 +395,19 @@ impl SearchEngine {
         results.truncate(limit.clamp(1, 100));
 
         Ok(results.into_iter().map(|(_, result)| result).collect())
+    }
+
+    fn read_search_result(
+        &self,
+        searcher: &tantivy::Searcher,
+        address: tantivy::DocAddress,
+    ) -> Result<SearchResult> {
+        let document: TantivyDocument = searcher.doc(address)?;
+        let record = document
+            .get_first(self.fields.record)
+            .and_then(|value| value.as_str())
+            .context("indexed document is missing its stored record")?;
+        Ok(serde_json::from_str(record)?)
     }
 }
 
@@ -446,6 +519,16 @@ async fn search_address(
     Query(parameters): Query<SearchParameters>,
 ) -> Response {
     let limit = parameters.limit.unwrap_or(50).clamp(1, 100);
+    let (street, number) = match split_street_and_number(&street) {
+        Ok(address) => address,
+        Err(error) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": error.to_string() })),
+            )
+                .into_response();
+        }
+    };
     if let Err(error) = validate_search(&uf, &locality, &street) {
         return (
             StatusCode::BAD_REQUEST,
@@ -467,12 +550,17 @@ async fn search_address(
     };
     let result = tokio::task::spawn_blocking(move || {
         let _permit = permit;
-        engine.search(&uf, &locality, &street, limit)
+        engine.search_with_number(&uf, &locality, &street, number, limit)
     })
     .await;
 
     match result {
         Ok(Ok(results)) => Json(results).into_response(),
+        Ok(Err(error)) if error.downcast_ref::<NumberSearchTooBroad>().is_some() => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(serde_json::json!({ "error": error.to_string() })),
+        )
+            .into_response(),
         Ok(Err(error)) => {
             error!(%error, "address search failed");
             (

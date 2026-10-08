@@ -23,6 +23,7 @@ O gate determinístico de busca reversa:
 2. Aguarda o healthcheck do `cep-search` e consulta `/ready` pelo Nginx.
 3. Confirma versão e contagem do índice de fixtures.
 4. Pesquisa `Paulsta` e exige o resultado local da Avenida Paulista.
+5. Pesquisa a Rua Quinto Salvadori com número `1774` e exige a faixa par correta.
 
 Assim, esse teste não pode passar usando o fallback ViaCEP. Em caso de falha, o
 workflow imprime `compose ps`, logs dos serviços e o histórico do healthcheck.

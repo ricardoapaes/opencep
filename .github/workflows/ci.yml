@@ -87,10 +87,12 @@ jobs:
           fi
           curl -fsS http://localhost:8080/ready > /tmp/opencep-ready.json
 
-          jq -e '.status == "ready" and .dataset_version == "ci-fixture" and .document_count == 3' \
+          jq -e '.status == "ready" and .dataset_version == "ci-fixture" and .document_count == 9' \
             /tmp/opencep-ready.json
           curl -fsS 'http://localhost:8080/ws/SP/Sao%20Paulo/Paulsta/json/?limit=10' \
             | jq -e 'any(.[]; .cep == "01310-100" and .logradouro == "Avenida Paulista")'
+          curl -fsS 'http://localhost:8080/ws/PR/Campo%20Mour%C3%A3o/Rua%20Quinto%20Salvadori,1774/json/?limit=10' \
+            | jq -e 'length == 1 and .[0].cep == "87308-084"'
           docker compose $compose_files down
 
       - name: Build Docker image
